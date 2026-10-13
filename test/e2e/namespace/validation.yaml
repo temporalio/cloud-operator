@@ -1,0 +1,269 @@
+name: namespace-validation
+description: |
+  Checks that the Namespace CRD accepts valid Namespace manifests and rejects
+  invalid ones.
+
+  Each create case patches testdata/minimal.yaml locally to make it invalid in
+  exactly one way, then applies it with --dry-run=server. A server dry run
+  runs the same schema and CEL validation as a real apply but never stores the
+  object. Update cases patch stored objects with --dry-run=server.
+
+depends:
+  - name: kubectl
+
+defaults:
+  kube:
+    namespace: $TEST_USER_NAMESPACE
+
+tests:
+ - name: ensure-empty-test-namespace
+   kube.get: namespaces.cloud.temporal.io
+   require:
+     len: 0
+
+ # Valid manifests
+ - name: accept-minimal-manifest
+   exec: >-
+     kubectl apply --dry-run=server -n $TEST_USER_NAMESPACE
+     -f testdata/minimal.yaml
+   require:
+     out:
+       contains: namespace.cloud.temporal.io/minimal created (server dry run)
+
+ - name: apply-example
+   exec: kubectl apply -n $TEST_USER_NAMESPACE -f ../../../examples/namespace.yaml
+   require:
+     out:
+       contains: namespace.cloud.temporal.io/payments-prod created
+     err:
+       contains-none-of: Warning
+
+ - name: check-example-spec
+   kube.get: namespaces.cloud.temporal.io/payments-prod
+   assert:
+     matches:
+       spec:
+         tags:
+           environment: production
+           team: payments
+         replicas:
+           - region: aws-us-west-2
+         retentionDays: 30
+         apiKeyAuth:
+           enabled: true
+         capacity:
+           onDemand: {}
+
+ # Required fields
+ - name: reject-missing-spec
+   shell: sh
+   exec: >-
+     kubectl patch --local --type=merge -o yaml
+     -f testdata/minimal.yaml
+     -p '{"spec":null}' |
+     kubectl apply --dry-run=server -n $TEST_USER_NAMESPACE -f -
+   assert:
+     exit-code: 1
+     err:
+       contains: "spec: Required value"
+
+ - name: reject-missing-replicas
+   shell: sh
+   exec: >-
+     kubectl patch --local --type=merge -o yaml
+     -f testdata/minimal.yaml
+     -p '{"spec":{"replicas":null}}' |
+     kubectl apply --dry-run=server -n $TEST_USER_NAMESPACE -f -
+   assert:
+     exit-code: 1
+     err:
+       contains: "spec.replicas: Required value"
+
+ - name: reject-empty-replicas
+   shell: sh
+   exec: >-
+     kubectl patch --local --type=merge -o yaml
+     -f testdata/minimal.yaml
+     -p '{"spec":{"replicas":[]}}' |
+     kubectl apply --dry-run=server -n $TEST_USER_NAMESPACE -f -
+   assert:
+     exit-code: 1
+     err:
+       contains: spec.replicas in body should have at least 1 items
+
+ - name: reject-duplicate-replica-regions
+   shell: sh
+   exec: >-
+     kubectl patch --local --type=merge -o yaml
+     -f testdata/minimal.yaml
+     -p '{"spec":{"replicas":[{"region":"aws-us-west-2"},{"region":"aws-us-west-2"}]}}' |
+     kubectl apply --dry-run=server -n $TEST_USER_NAMESPACE -f -
+   assert:
+     exit-code: 1
+     err:
+       contains: "spec.replicas[1]: Duplicate value"
+
+ - name: reject-missing-retention-days
+   shell: sh
+   exec: >-
+     kubectl patch --local --type=merge -o yaml
+     -f testdata/minimal.yaml
+     -p '{"spec":{"retentionDays":null}}' |
+     kubectl apply --dry-run=server -n $TEST_USER_NAMESPACE -f -
+   assert:
+     exit-code: 1
+     err:
+       contains: "spec.retentionDays: Required value"
+
+ - name: reject-auth-without-enabled
+   shell: sh
+   exec: >-
+     kubectl patch --local --type=merge -o yaml
+     -f testdata/minimal.yaml
+     -p '{"spec":{"apiKeyAuth":{"enabled":null}}}' |
+     kubectl apply --dry-run=server -n $TEST_USER_NAMESPACE -f -
+   assert:
+     exit-code: 1
+     err:
+       contains: "spec.apiKeyAuth.enabled: Required value"
+
+ # Enums, sets and one-of rules
+ - name: reject-unknown-search-attribute-type
+   shell: sh
+   exec: >-
+     kubectl patch --local --type=merge -o yaml
+     -f testdata/minimal.yaml
+     -p '{"spec":{"searchAttributes":{"CustomerId":"keyword"}}}' |
+     kubectl apply --dry-run=server -n $TEST_USER_NAMESPACE -f -
+   assert:
+     exit-code: 1
+     err:
+       contains: 'spec.searchAttributes.CustomerId: Unsupported value: "keyword"'
+
+ - name: reject-duplicate-connectivity-rule-ids
+   shell: sh
+   exec: >-
+     kubectl patch --local --type=merge -o yaml
+     -f testdata/minimal.yaml
+     -p '{"spec":{"connectivityRuleIDs":["rule-1","rule-1"]}}' |
+     kubectl apply --dry-run=server -n $TEST_USER_NAMESPACE -f -
+   assert:
+     exit-code: 1
+     err:
+       contains: "spec.connectivityRuleIDs[1]: Duplicate value"
+
+ - name: reject-both-capacity-modes
+   shell: sh
+   exec: >-
+     kubectl patch --local --type=merge -o yaml
+     -f testdata/minimal.yaml
+     -p '{"spec":{"capacity":{"onDemand":{},"provisioned":{"value":2}}}}' |
+     kubectl apply --dry-run=server -n $TEST_USER_NAMESPACE -f -
+   assert:
+     exit-code: 1
+     err:
+       contains: exactly one of onDemand or provisioned must be set
+
+ - name: reject-no-capacity-mode
+   shell: sh
+   exec: >-
+     kubectl patch --local --type=merge -o yaml
+     -f testdata/minimal.yaml
+     -p '{"spec":{"capacity":{}}}' |
+     kubectl apply --dry-run=server -n $TEST_USER_NAMESPACE -f -
+   assert:
+     exit-code: 1
+     err:
+       contains: exactly one of onDemand or provisioned must be set
+
+ - name: reject-unknown-encryption-validation-mode
+   shell: sh
+   exec: >-
+     kubectl patch --local --type=merge -o yaml
+     -f testdata/minimal.yaml
+     -p '{"spec":{"encryptionValidation":{"mode":"Strict"}}}' |
+     kubectl apply --dry-run=server -n $TEST_USER_NAMESPACE -f -
+   assert:
+     exit-code: 1
+     err:
+       contains: 'spec.encryptionValidation.mode: Unsupported value: "Strict"'
+
+ # Updates: projectID is immutable, and search attributes cannot be removed or
+ # have their type changed.
+ - name: create-namespace-with-project-and-search-attribute
+   shell: sh
+   exec: >-
+     kubectl patch --local --type=merge -o yaml
+     -f testdata/minimal.yaml
+     -p '{"metadata":{"name":"immutable-fields"},"spec":{"projectID":"project-1","searchAttributes":{"CustomerId":"Keyword"}}}' |
+     kubectl apply -n $TEST_USER_NAMESPACE -f -
+   require:
+     out:
+       contains: namespace.cloud.temporal.io/immutable-fields created
+
+ - name: accept-update-of-mutable-fields
+   exec: >-
+     kubectl patch namespaces.cloud.temporal.io/immutable-fields
+     --dry-run=server -n $TEST_USER_NAMESPACE --type=merge
+     -p '{"spec":{"retentionDays":7,"replicas":[{"region":"aws-us-west-2"},{"region":"aws-us-east-1"}],"searchAttributes":{"OrderId":"Int"}}}'
+
+ - name: reject-adding-project
+   exec: >-
+     kubectl patch namespaces.cloud.temporal.io/payments-prod
+     --dry-run=server -n $TEST_USER_NAMESPACE --type=merge
+     -p '{"spec":{"projectID":"project-1"}}'
+   assert:
+     exit-code: 1
+     err:
+       contains: projectID cannot be added, changed or removed after creation
+
+ - name: reject-changing-project
+   exec: >-
+     kubectl patch namespaces.cloud.temporal.io/immutable-fields
+     --dry-run=server -n $TEST_USER_NAMESPACE --type=merge
+     -p '{"spec":{"projectID":"project-2"}}'
+   assert:
+     exit-code: 1
+     err:
+       contains: projectID cannot be added, changed or removed after creation
+
+ - name: reject-removing-project
+   exec: >-
+     kubectl patch namespaces.cloud.temporal.io/immutable-fields
+     --dry-run=server -n $TEST_USER_NAMESPACE --type=merge
+     -p '{"spec":{"projectID":null}}'
+   assert:
+     exit-code: 1
+     err:
+       contains: projectID cannot be added, changed or removed after creation
+
+ - name: reject-removing-search-attribute
+   exec: >-
+     kubectl patch namespaces.cloud.temporal.io/immutable-fields
+     --dry-run=server -n $TEST_USER_NAMESPACE --type=merge
+     -p '{"spec":{"searchAttributes":{"CustomerId":null}}}'
+   assert:
+     exit-code: 1
+     err:
+       contains: searchAttributes cannot be removed or have their type changed
+
+ - name: reject-changing-search-attribute-type
+   exec: >-
+     kubectl patch namespaces.cloud.temporal.io/immutable-fields
+     --dry-run=server -n $TEST_USER_NAMESPACE --type=merge
+     -p '{"spec":{"searchAttributes":{"CustomerId":"Text"}}}'
+   assert:
+     exit-code: 1
+     err:
+       contains: searchAttributes cannot be removed or have their type changed
+
+ - name: delete-example
+   kube.delete: namespaces.cloud.temporal.io/payments-prod
+
+ - name: delete-namespace-with-project-and-search-attribute
+   kube.delete: namespaces.cloud.temporal.io/immutable-fields
+
+ - name: ensure-namespaces-deleted
+   kube.get: namespaces.cloud.temporal.io
+   assert:
+     len: 0

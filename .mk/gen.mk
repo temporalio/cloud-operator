@@ -45,17 +45,10 @@ gen-kube-register: $(KUBE_CODEGEN_PATH) ## Generate API scheme and groupversion 
 
 .PHONY: gen-kube-manifests
 CONTROLLER_ROLE_NAME ?= temporal-resource-operator
-# Note that the option maxDescLen=0 was added in the default scaffold in
-# order to sort out the issue Too long: must have at most 262144 bytes. By
-# using kubectl apply to create / update resources an annotation is created
-# by K8s API to store the latest version of the resource (
-# kubectl.kubernetes.io/last-applied-configuration).  However, it has a
-# size limit and if the CRD is too big with so many long descriptions as
-# this one it will cause the failure.
 gen-kube-manifests: $(CONTROLLER_GEN) ## Generate WebhookConfiguration, ClusterRole objects.
 	@echo -n "generating Kubernetes manifests ... "
 	@$(CONTROLLER_GEN) rbac:roleName=$(CONTROLLER_ROLE_NAME) \
-		crd:maxDescLen=0 webhook paths="./api/...;./controller/..." \
+		crd webhook paths="./api/...;./controller/..." \
 		output:crd:dir=deploy/kustomize/crd/bases \
 		output:rbac:dir=deploy/kustomize/rbac
 	@echo "ok."

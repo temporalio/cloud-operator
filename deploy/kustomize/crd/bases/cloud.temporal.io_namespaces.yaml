@@ -17,49 +17,383 @@ spec:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
+        description: Namespace represents an instance of a Temporal Cloud Namespace.
         properties:
           apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
             type: string
           kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
             type: string
           metadata:
             type: object
           spec:
+            description: Spec defines the desired state of the Namespace.
             properties:
-              projectID:
-                type: string
-              tags:
+              apiKeyAuth:
+                description: |-
+                  APIKeyAuth configures API key client authentication.
+                  Maps to Temporal Cloud proto `NamespaceSpec.api_key_auth`.
+                properties:
+                  enabled:
+                    description: |-
+                      Enabled turns API key authentication on or off.
+                      Maps to Temporal Cloud proto `ApiKeyAuthSpec.enabled`.
+                    type: boolean
+                required:
+                - enabled
+                type: object
+              capacity:
+                description: |-
+                  Capacity selects the capacity mode.
+                  Maps to Temporal Cloud proto `NamespaceSpec.capacity_spec`.
+                properties:
+                  onDemand:
+                    description: |-
+                      OnDemand selects the on-demand capacity mode.
+                      Maps to Temporal Cloud proto `CapacitySpec.on_demand`.
+                    type: object
+                  provisioned:
+                    description: |-
+                      Provisioned selects the provisioned capacity mode.
+                      Maps to Temporal Cloud proto `CapacitySpec.provisioned`.
+                    properties:
+                      value:
+                        description: |-
+                          Value is the capacity in Temporal Resource Units (TRUs).
+                          Maps to Temporal Cloud proto `CapacitySpec.Provisioned.value`.
+                        format: int32
+                        type: integer
+                    required:
+                    - value
+                    type: object
+                type: object
+                x-kubernetes-validations:
+                - message: exactly one of onDemand or provisioned must be set
+                  rule: has(self.onDemand) != has(self.provisioned)
+              codecServer:
+                description: |-
+                  CodecServer configures the codec server used by the Temporal Cloud UI.
+                  Maps to Temporal Cloud proto `NamespaceSpec.codec_server`.
+                properties:
+                  customErrorMessage:
+                    description: |-
+                      CustomErrorMessage is shown in the UI when the codec server returns an
+                      error.
+                      Maps to Temporal Cloud proto `CodecServerSpec.custom_error_message`.
+                    properties:
+                      default:
+                        description: |-
+                          Default is shown for any codec server error.
+                          Maps to Temporal Cloud proto `CodecServerSpec.CustomErrorMessage.default`.
+                        properties:
+                          link:
+                            description: |-
+                              Link is a URL shown next to the message.
+                              Maps to Temporal Cloud proto `CodecServerSpec.CustomErrorMessage.ErrorMessage.link`.
+                            type: string
+                          message:
+                            description: |-
+                              Message is the text to show.
+                              Maps to Temporal Cloud proto `CodecServerSpec.CustomErrorMessage.ErrorMessage.message`.
+                            type: string
+                        type: object
+                    type: object
+                  endpoint:
+                    description: |-
+                      Endpoint is the URL of the codec server.
+                      Maps to Temporal Cloud proto `CodecServerSpec.endpoint`.
+                    type: string
+                  includeCrossOriginCredentials:
+                    description: |-
+                      IncludeCrossOriginCredentials includes cross-origin credentials in
+                      requests to the endpoint.
+                      Maps to Temporal Cloud proto `CodecServerSpec.include_cross_origin_credentials`.
+                    type: boolean
+                  passAccessToken:
+                    description: |-
+                      PassAccessToken passes the user's access token to the endpoint.
+                      Maps to Temporal Cloud proto `CodecServerSpec.pass_access_token`.
+                    type: boolean
+                required:
+                - endpoint
+                type: object
+              connectivityRuleIDs:
+                description: |-
+                  ConnectivityRuleIDs are the IDs of the connectivity rules to apply.
+                  Maps to Temporal Cloud proto `NamespaceSpec.connectivity_rule_ids`.
                 items:
                   type: string
                 type: array
+                x-kubernetes-list-type: set
+              description:
+                description: |-
+                  Description is a human-readable description of the Namespace.
+                  Maps to Temporal Cloud proto `NamespaceSpec.description`.
+                type: string
+              encryptionValidation:
+                description: |-
+                  EncryptionValidation configures payload encryption validation.
+                  Maps to Temporal Cloud proto `NamespaceSpec.encryption_validation`.
+                properties:
+                  inspectFailure:
+                    description: |-
+                      InspectFailure includes failure messages and stack traces in
+                      validation.
+                      Maps to Temporal Cloud proto `EncryptionValidationSpec.inspect_failure`.
+                    type: boolean
+                  inspectHeader:
+                    description: |-
+                      InspectHeader includes workflow headers in validation.
+                      Maps to Temporal Cloud proto `EncryptionValidationSpec.inspect_header`.
+                    type: boolean
+                  metadataKey:
+                    description: |-
+                      MetadataKey is the payload metadata key that identifies encrypted
+                      payloads.
+                      Maps to Temporal Cloud proto `EncryptionValidationSpec.metadata_key`.
+                    type: string
+                  metadataValues:
+                    description: |-
+                      MetadataValues are the payload metadata values that identify encrypted
+                      payloads.
+                      Maps to Temporal Cloud proto `EncryptionValidationSpec.metadata_values`.
+                    items:
+                      type: string
+                    type: array
+                  mode:
+                    description: |-
+                      Mode is the payload encryption validation mode.
+                      Maps to Temporal Cloud proto `EncryptionValidationSpec.mode`.
+                    enum:
+                    - Disabled
+                    - Warn
+                    - Deny
+                    type: string
+                required:
+                - mode
+                type: object
+              fairness:
+                description: |-
+                  Fairness configures task queue fairness.
+                  Maps to Temporal Cloud proto `NamespaceSpec.fairness`.
+                properties:
+                  taskQueueFairnessEnabled:
+                    description: |-
+                      TaskQueueFairnessEnabled turns on task queue fairness.
+                      Maps to Temporal Cloud proto `FairnessSpec.task_queue_fairness_enabled`.
+                    type: boolean
+                type: object
+              highAvailability:
+                description: |-
+                  HighAvailability configures failover behavior.
+                  Maps to Temporal Cloud proto `NamespaceSpec.high_availability`.
+                properties:
+                  disableManagedFailover:
+                    description: |-
+                      DisableManagedFailover turns off failover managed by Temporal Cloud.
+                      Maps to Temporal Cloud proto `HighAvailabilitySpec.disable_managed_failover`.
+                    type: boolean
+                  disablePassivePollerForwarding:
+                    description: |-
+                      DisablePassivePollerForwarding turns off forwarding of polls from
+                      passive replicas to the active replica.
+                      Maps to Temporal Cloud proto `HighAvailabilitySpec.disable_passive_poller_forwarding`.
+                    type: boolean
+                type: object
+              lifecycle:
+                description: |-
+                  Lifecycle configures lifecycle settings.
+                  Maps to Temporal Cloud proto `NamespaceSpec.lifecycle`.
+                properties:
+                  enableDeleteProtection:
+                    description: |-
+                      EnableDeleteProtection prevents the Namespace from being deleted.
+                      Maps to Temporal Cloud proto `LifecycleSpec.enable_delete_protection`.
+                    type: boolean
+                type: object
+              mtlsAuth:
+                description: |-
+                  MTLSAuth configures mTLS client authentication.
+                  Maps to Temporal Cloud proto `NamespaceSpec.mtls_auth`.
+                properties:
+                  acceptedClientCA:
+                    description: |-
+                      AcceptedClientCA is the PEM-encoded CA certificate, or chain, that
+                      client certificates must be issued by.
+                      Maps to Temporal Cloud proto `MtlsAuthSpec.accepted_client_ca`.
+                    type: string
+                  certificateFilters:
+                    description: |-
+                      CertificateFilters restrict client certificates by subject.
+                      Maps to Temporal Cloud proto `MtlsAuthSpec.certificate_filters`.
+                    items:
+                      description: CertificateFilterSpec matches client certificates
+                        by subject fields.
+                      properties:
+                        commonName:
+                          description: |-
+                            CommonName is the certificate's common name.
+                            Maps to Temporal Cloud proto `CertificateFilterSpec.common_name`.
+                          type: string
+                        organization:
+                          description: |-
+                            Organization is the certificate's organization.
+                            Maps to Temporal Cloud proto `CertificateFilterSpec.organization`.
+                          type: string
+                        organizationalUnit:
+                          description: |-
+                            OrganizationalUnit is the certificate's organizational unit.
+                            Maps to Temporal Cloud proto `CertificateFilterSpec.organizational_unit`.
+                          type: string
+                        subjectAlternativeName:
+                          description: |-
+                            SubjectAlternativeName is the certificate's subject alternative name.
+                            Maps to Temporal Cloud proto `CertificateFilterSpec.subject_alternative_name`.
+                          type: string
+                      type: object
+                    type: array
+                  enabled:
+                    description: |-
+                      Enabled turns mTLS authentication on or off.
+                      Maps to Temporal Cloud proto `MtlsAuthSpec.enabled`.
+                    type: boolean
+                required:
+                - enabled
+                type: object
+              projectID:
+                description: |-
+                  ProjectID is the ID of the Temporal Cloud project that the Namespace
+                  belongs to.
+                  Maps to Temporal Cloud proto `Namespace.project_id`.
+                minLength: 1
+                type: string
+              replicas:
+                description: |-
+                  Replicas are the regions where the Namespace is placed.
+                  Maps to Temporal Cloud proto `NamespaceSpec.replicas`.
+                items:
+                  description: ReplicaSpec places a replica of the Namespace in a
+                    region.
+                  properties:
+                    region:
+                      description: |-
+                        Region is the ID of the region to place the replica in.
+                        Maps to Temporal Cloud proto `ReplicaSpec.region`.
+                      type: string
+                  required:
+                  - region
+                  type: object
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - region
+                x-kubernetes-list-type: map
+              retentionDays:
+                description: |-
+                  RetentionDays is the number of days that closed workflow histories are
+                  kept.
+                  Maps to Temporal Cloud proto `NamespaceSpec.retention_days`.
+                format: int32
+                type: integer
+              searchAttributes:
+                additionalProperties:
+                  description: SearchAttributeType is the type of a custom search
+                    attribute.
+                  enum:
+                  - Text
+                  - Keyword
+                  - Int
+                  - Double
+                  - Bool
+                  - Datetime
+                  - KeywordList
+                  type: string
+                description: |-
+                  SearchAttributes are the custom search attributes of the Namespace,
+                  keyed by name.
+                  Maps to Temporal Cloud proto `NamespaceSpec.search_attributes`.
+                type: object
+              tags:
+                additionalProperties:
+                  type: string
+                description: |-
+                  Tags are key-value pairs to attach to the Namespace.
+                  Maps to Temporal Cloud proto `Namespace.tags`.
+                type: object
+            required:
+            - replicas
+            - retentionDays
             type: object
+            x-kubernetes-validations:
+            - fieldPath: .projectID
+              message: projectID cannot be added, changed or removed after creation
+              rule: has(self.projectID) == has(oldSelf.projectID) && (!has(self.projectID)
+                || self.projectID == oldSelf.projectID)
+            - fieldPath: .searchAttributes
+              message: searchAttributes cannot be removed or have their type changed
+              rule: '!has(oldSelf.searchAttributes) || (has(self.searchAttributes)
+                && oldSelf.searchAttributes.all(k, k in self.searchAttributes && self.searchAttributes[k]
+                == oldSelf.searchAttributes[k]))'
           status:
+            description: Status describes the current status of a Namespace.
             properties:
               conditions:
+                description: Conditions is the collection of Conditions associated
+                  with the resource.
                 items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
                   properties:
                     lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
                       format: date-time
                       type: string
                     message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
                       maxLength: 32768
                       type: string
                     observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
                       format: int64
                       minimum: 0
                       type: integer
                     reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
                       maxLength: 1024
                       minLength: 1
                       pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
                       type: string
                     status:
+                      description: status of the condition, one of True, False, Unknown.
                       enum:
                       - "True"
                       - "False"
                       - Unknown
                       type: string
                     type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
                       maxLength: 316
                       pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
                       type: string
@@ -75,6 +409,10 @@ spec:
                 - type
                 x-kubernetes-list-type: map
             type: object
+        required:
+        - spec
         type: object
     served: true
     storage: true
+    subresources:
+      status: {}
