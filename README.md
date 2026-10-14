@@ -115,7 +115,7 @@ The API server checks that:
 * `replicas` and `retentionDays` are set, and `replicas` is not empty.
 * Enum values are valid, replica regions are unique, and exactly one capacity
   mode is set.
-* Updates do not change `projectID`, and do not remove search attributes or
+* Updates do not change `project`, and do not remove search attributes or
   change their type.
 
 Temporal Cloud reports all other errors, such as invalid tags or a retention

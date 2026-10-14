@@ -13,7 +13,7 @@ metadata:
 spec:
   # The project to create the Namespace in. If not set, the account's default
   # project is used. Cannot be changed after creation.
-  # projectID: <project-id>
+  # project: <project-id>
   tags:
     environment: production
     team: payments

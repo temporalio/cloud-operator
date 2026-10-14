@@ -27,15 +27,15 @@ type Namespace struct {
 //
 // Ref: https://github.com/temporalio/cloud-api/blob/main/temporal/api/cloud/namespace/v1/message.proto
 // +k8s:openapi-gen=true
-// +kubebuilder:validation:XValidation:rule="has(self.projectID) == has(oldSelf.projectID) && (!has(self.projectID) || self.projectID == oldSelf.projectID)",message="projectID cannot be added, changed or removed after creation",fieldPath=".projectID"
+// +kubebuilder:validation:XValidation:rule="has(self.project) == has(oldSelf.project) && (!has(self.project) || self.project == oldSelf.project)",message="project cannot be added, changed or removed after creation",fieldPath=".project"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.searchAttributes) || (has(self.searchAttributes) && oldSelf.searchAttributes.all(k, k in self.searchAttributes && self.searchAttributes[k] == oldSelf.searchAttributes[k]))",message="searchAttributes cannot be removed or have their type changed",fieldPath=".searchAttributes"
 type NamespaceSpec struct {
-	// ProjectID is the ID of the Temporal Cloud project that the Namespace
+	// Project is the identifier of the Temporal Cloud project that the Namespace
 	// belongs to.
 	// Maps to Temporal Cloud proto `Namespace.project_id`.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
-	ProjectID string `json:"projectID,omitempty"`
+	Project string `json:"project,omitempty"`
 	// Tags are key-value pairs to attach to the Namespace.
 	// Maps to Temporal Cloud proto `Namespace.tags`.
 	// +optional

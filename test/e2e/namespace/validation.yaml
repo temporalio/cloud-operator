@@ -138,14 +138,14 @@ tests:
    assert:
      exit-code: 1
      err:
-       contains: projectID cannot be added, changed or removed after creation
+       contains: project cannot be added, changed or removed after creation
 
  - name: reject-removing-project
    exec: kubectl replace -n $TEST_USER_NAMESPACE -f manifests/updates/remove-project.yaml
    assert:
      exit-code: 1
      err:
-       contains: projectID cannot be added, changed or removed after creation
+       contains: project cannot be added, changed or removed after creation
 
  - name: reject-removing-search-attribute
    exec: kubectl replace -n $TEST_USER_NAMESPACE -f manifests/updates/remove-search-attribute.yaml
@@ -169,7 +169,7 @@ tests:
    assert:
      exit-code: 1
      err:
-       contains: projectID cannot be added, changed or removed after creation
+       contains: project cannot be added, changed or removed after creation
 
  - name: create-mutable-fields
    kube.apply: manifests/mutable-fields.yaml

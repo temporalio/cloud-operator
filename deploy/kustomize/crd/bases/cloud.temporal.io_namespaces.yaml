@@ -270,9 +270,9 @@ spec:
                 required:
                 - enabled
                 type: object
-              projectID:
+              project:
                 description: |-
-                  ProjectID is the ID of the Temporal Cloud project that the Namespace
+                  Project is the identifier of the Temporal Cloud project that the Namespace
                   belongs to.
                   Maps to Temporal Cloud proto `Namespace.project_id`.
                 minLength: 1
@@ -335,10 +335,10 @@ spec:
             - retentionDays
             type: object
             x-kubernetes-validations:
-            - fieldPath: .projectID
-              message: projectID cannot be added, changed or removed after creation
-              rule: has(self.projectID) == has(oldSelf.projectID) && (!has(self.projectID)
-                || self.projectID == oldSelf.projectID)
+            - fieldPath: .project
+              message: project cannot be added, changed or removed after creation
+              rule: has(self.project) == has(oldSelf.project) && (!has(self.project)
+                || self.project == oldSelf.project)
             - fieldPath: .searchAttributes
               message: searchAttributes cannot be removed or have their type changed
               rule: '!has(oldSelf.searchAttributes) || (has(self.searchAttributes)
