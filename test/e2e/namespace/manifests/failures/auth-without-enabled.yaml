@@ -1,0 +1,9 @@
+apiVersion: cloud.temporal.io/v1alpha1
+kind: Namespace
+metadata:
+  name: auth-without-enabled
+spec:
+  replicas:
+    - region: aws-us-west-2
+  retentionDays: 30
+  apiKeyAuth: {}
