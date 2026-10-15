@@ -1,0 +1,154 @@
+#!/usr/bin/env bash
+#
+# Temporal Cloud helpers for the resource-operator e2e tests.
+#
+# Wraps the pinned `temporal-cloud` CLI (installed by `make` into bin/). Every
+# call authenticates with the e2e API key only. The CLI falls back to the
+# developer's `temporal cloud login` session when no key is given.
+#
+set -o errexit
+set -o nounset
+set -o pipefail
+
+CLI="${TEMPORAL_CLOUD_CLI:-temporal-cloud}"
+DEFAULT_KEY_FILE="${HOME}/.config/temporalio/resource-operator-e2e-api-key"
+E2E_PREFIX="tro-e2e-"
+KEY_EXPIRY_WARN_DAYS=7
+RUNBOOK="README.md#temporal-cloud-test-account"
+
+usage() {
+	cat <<EOF
+Usage: tro-e2e-cloud <command> [args]
+
+Commands:
+  preflight          Check the e2e API key, project and namespace access.
+  ns-list [prefix]   Print namespace names, optionally only those with prefix.
+
+Environment:
+  TEMPORAL_CLOUD_API_KEY       API key for the e2e service account.
+  TEMPORAL_CLOUD_API_KEY_FILE  Read the key from this file when
+                               TEMPORAL_CLOUD_API_KEY is unset
+                               (default: ${DEFAULT_KEY_FILE}).
+  TEST_CLOUD_PROJECT_ID        Optional. Limits namespace operations to this
+                               project.
+  TEMPORAL_CLOUD_CLI           CLI binary to use (default: temporal-cloud).
+
+See ${RUNBOOK}.
+EOF
+}
+
+ok() { echo "✓ $*"; }
+note() { echo "- $*"; }
+warn() { echo "! $*" >&2; }
+die() {
+	echo "✗ $*" >&2
+	exit 1
+}
+
+need() {
+	command -v "$1" >/dev/null 2>&1 || die "$1 not found on PATH. $2"
+}
+
+# load_key sets TEMPORAL_CLOUD_API_KEY, reading it from the key file if it
+# isn't already in the environment, and KEY_SOURCE to where it came from.
+load_key() {
+	if [[ -n "${TEMPORAL_CLOUD_API_KEY:-}" ]]; then
+		KEY_SOURCE="TEMPORAL_CLOUD_API_KEY"
+		return
+	fi
+	local file="${TEMPORAL_CLOUD_API_KEY_FILE:-$DEFAULT_KEY_FILE}"
+	[[ -r "$file" ]] || die "no API key: set TEMPORAL_CLOUD_API_KEY or create ${file}. See ${RUNBOOK}"
+	TEMPORAL_CLOUD_API_KEY="$(<"$file")"
+	[[ -n "$TEMPORAL_CLOUD_API_KEY" ]] || die "API key file ${file} is empty. See ${RUNBOOK}"
+	KEY_SOURCE="$file"
+}
+
+# tc runs the Temporal Cloud CLI with JSON output, authenticated only with the
+# e2e key. The key goes through the environment, not argv, so it doesn't show
+# up in process listings.
+tc() {
+	[[ -n "${TEMPORAL_CLOUD_API_KEY:-}" ]] || die "internal error: no API key loaded"
+	TEMPORAL_API_KEY="$TEMPORAL_CLOUD_API_KEY" "$CLI" "$@" --output json --color never --auto-confirm
+}
+
+cmd_ns_list() {
+	local prefix="${1:-}" token="" page
+	load_key
+	while :; do
+		page="$(tc namespace list \
+			${TEST_CLOUD_PROJECT_ID:+--project-id "$TEST_CLOUD_PROJECT_ID"} \
+			${token:+--page-token "$token"})"
+		jq -r --arg p "$prefix" '(.Namespaces // [])[].spec.name | select(startswith($p))' <<<"$page"
+		token="$(jq -r '.NextPageToken // ""' <<<"$page")"
+		[[ -n "$token" ]] || break
+	done
+}
+
+cmd_preflight() {
+	local who principal role expiry secs project names total leftovers
+
+	need jq "Install it with 'brew install jq' or 'apt-get install jq'."
+	need "$CLI" "Run through make, which installs the pinned CLI into bin/."
+
+	load_key
+	ok "API key loaded from ${KEY_SOURCE}"
+
+	who="$(tc whoami)" || die "Temporal Cloud rejected the API key (error above). Expired or revoked? See ${RUNBOOK}"
+	principal="$(jq -r '
+		if .serviceAccount then "service account \(.serviceAccount.spec.name)"
+		elif .user then "user \(.user.spec.email // .user.id)"
+		else "unknown principal" end' <<<"$who")"
+	role="$(jq -r '(.serviceAccount // .user // {}).spec.access.accountAccess.role // "unknown"' <<<"$who")"
+	ok "identity: ${principal} (account role: ${role})"
+	if jq -e '.serviceAccount == null' <<<"$who" >/dev/null; then
+		warn "the key does not belong to a service account. Use a resource-operator-e2e service account key. See ${RUNBOOK}"
+	fi
+	case "$role" in
+	ROLE_OWNER | ROLE_ADMIN | ROLE_GLOBAL_ADMIN)
+		warn "the key has the ${role} account role, more than the e2e tests need. See ${RUNBOOK}"
+		;;
+	esac
+
+	expiry="$(jq -r '.principalApiKey.spec.expiryTime // ""' <<<"$who")"
+	if [[ -z "$expiry" ]]; then
+		warn "could not read the API key expiry"
+	else
+		secs="$(jq -r '.principalApiKey.spec.expiryTime | sub("\\.[0-9]+"; "") | fromdateiso8601 - now | floor' <<<"$who")"
+		if ((secs < KEY_EXPIRY_WARN_DAYS * 86400)); then
+			warn "API key expires ${expiry} (in $((secs / 3600))h). Rotate it. See ${RUNBOOK}"
+		else
+			ok "API key expires ${expiry} (in $((secs / 86400)) days)"
+		fi
+	fi
+
+	if [[ -n "${TEST_CLOUD_PROJECT_ID:-}" ]]; then
+		project="$(tc project get --project-id "$TEST_CLOUD_PROJECT_ID")" ||
+			die "project ${TEST_CLOUD_PROJECT_ID} not found or not accessible with this key. Bootstrap not done? See ${RUNBOOK}"
+		ok "project: $(jq -r '.spec.displayName // "?"' <<<"$project") (${TEST_CLOUD_PROJECT_ID})"
+	else
+		note "scope: whole account (TEST_CLOUD_PROJECT_ID not set)"
+	fi
+
+	names="$(cmd_ns_list)" || die "the key cannot list namespaces. See ${RUNBOOK}"
+	total="$(grep -c . <<<"$names" || true)"
+	leftovers="$(grep -c "^${E2E_PREFIX}" <<<"$names" || true)"
+	ok "key can list namespaces (${total} visible, ${leftovers} named ${E2E_PREFIX}*)"
+
+	ok "preflight passed"
+}
+
+main() {
+	local cmd="${1:-help}"
+	[[ $# -eq 0 ]] || shift
+	case "$cmd" in
+	preflight) cmd_preflight "$@" ;;
+	ns-list) cmd_ns_list "$@" ;;
+	help | -h | --help) usage ;;
+	*)
+		usage >&2
+		exit 2
+		;;
+	esac
+}
+
+main "$@"
