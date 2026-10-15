@@ -217,7 +217,7 @@ spec:
                 properties:
                   enableDeleteProtection:
                     description: |-
-                      EnableDeleteProtection prevents the Namespace from being deleted.
+                      EnableDeleteProtection prevents the resource from being deleted.
                       Maps to Temporal Cloud proto `LifecycleSpec.enable_delete_protection`.
                     type: boolean
                 type: object
@@ -347,6 +347,12 @@ spec:
           status:
             description: Status describes the current status of a Namespace.
             properties:
+              asyncOperationID:
+                description: |-
+                  AsyncOperationID is the ID of the most recent asynchronous operation
+                  started on the resource.
+                  Maps to Temporal Cloud proto `async_operation_id`.
+                type: string
               conditions:
                 description: Conditions is the collection of Conditions associated
                   with the resource.
@@ -408,6 +414,48 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              createdTime:
+                description: |-
+                  CreatedTime is when the resource was created in Temporal Cloud.
+                  Maps to Temporal Cloud proto `created_time`.
+                format: date-time
+                type: string
+              id:
+                description: |-
+                  ID is the identifier Temporal Cloud uses for the resource. Not set for
+                  resources that Temporal Cloud identifies by name.
+                  Maps to Temporal Cloud proto `id`, or `Namespace.namespace` for
+                  Namespaces.
+                type: string
+              lastModifiedTime:
+                description: |-
+                  LastModifiedTime is when the resource was last modified in Temporal
+                  Cloud.
+                  Maps to Temporal Cloud proto `last_modified_time`.
+                format: date-time
+                type: string
+              resourceVersion:
+                description: |-
+                  ResourceVersion is the version of the resource in Temporal Cloud. It is
+                  sent with each update and delete request.
+                  Maps to Temporal Cloud proto `resource_version`.
+                type: string
+              state:
+                description: |-
+                  State is the state of the resource in Temporal Cloud.
+                  Maps to Temporal Cloud proto `state`.
+                enum:
+                - Activating
+                - ActivationFailed
+                - Active
+                - Updating
+                - UpdateFailed
+                - Deleting
+                - DeleteFailed
+                - Deleted
+                - Suspended
+                - Expired
+                type: string
             type: object
         required:
         - spec

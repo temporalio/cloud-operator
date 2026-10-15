@@ -4,6 +4,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	tmprlcorev1 "github.com/temporalio/kube-temporal/api/core/v1"
+
+	cloudcommon "github.com/temporalio/resource-operator/api/cloud/common"
 )
 
 // Namespace represents an instance of a Temporal Cloud Namespace.
@@ -72,7 +74,7 @@ type NamespaceSpec struct {
 	// Lifecycle configures lifecycle settings.
 	// Maps to Temporal Cloud proto `NamespaceSpec.lifecycle`.
 	// +optional
-	Lifecycle *LifecycleSpec `json:"lifecycle,omitempty"`
+	Lifecycle *cloudcommon.LifecycleSpec `json:"lifecycle,omitempty"`
 	// HighAvailability configures failover behavior.
 	// Maps to Temporal Cloud proto `NamespaceSpec.high_availability`.
 	// +optional
@@ -210,14 +212,6 @@ type CodecServerErrorMessage struct {
 	Link string `json:"link,omitempty"`
 }
 
-// LifecycleSpec configures lifecycle settings for a Namespace.
-type LifecycleSpec struct {
-	// EnableDeleteProtection prevents the Namespace from being deleted.
-	// Maps to Temporal Cloud proto `LifecycleSpec.enable_delete_protection`.
-	// +optional
-	EnableDeleteProtection bool `json:"enableDeleteProtection,omitempty"`
-}
-
 // HighAvailabilitySpec configures failover behavior for a Namespace.
 type HighAvailabilitySpec struct {
 	// DisableManagedFailover turns off failover managed by Temporal Cloud.
@@ -308,7 +302,8 @@ const (
 // NamespaceStatus describes the current status of a Temporal Cloud namespace.
 // +k8s:openapi-gen=true
 type NamespaceStatus struct {
-	tmprlcorev1.StatusBase `json:",inline"`
+	tmprlcorev1.StatusBase     `json:",inline"`
+	cloudcommon.ResourceStatus `json:",inline"`
 }
 
 // NamespaceList is a list of Namespace resources
