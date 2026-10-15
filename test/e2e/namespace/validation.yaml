@@ -1,0 +1,208 @@
+name: namespace-validation
+description: |
+  Checks that the Namespace CRD accepts valid Namespace manifests and rejects
+  invalid ones.
+
+  Create cases apply one manifest per case from manifests/failures/, each
+  invalid in exactly one way. Update cases replace a stored Namespace with a
+  manifest from manifests/updates/. See the comment above the update cases.
+
+depends:
+  - name: kubectl
+
+defaults:
+  kube:
+    namespace: $TEST_USER_NAMESPACE
+
+tests:
+ - name: ensure-empty-test-namespace
+   kube.get: namespaces.cloud.temporal.io
+   require:
+     len: 0
+
+ # Valid manifests
+ - name: accept-minimal-manifest
+   kube.apply: manifests/minimal.yaml
+
+ - name: delete-minimal-manifest
+   kube.delete: namespaces.cloud.temporal.io/minimal
+
+ - name: apply-example
+   kube.apply: ../../../examples/namespace.yaml
+
+ - name: check-example-spec
+   kube.get: namespaces.cloud.temporal.io/payments-prod
+   assert:
+     matches:
+       spec:
+         tags:
+           environment: production
+           team: payments
+         replicas:
+           - region: aws-us-west-2
+         retentionDays: 30
+         apiKeyAuth:
+           enabled: true
+         capacity:
+           onDemand: {}
+
+ # Required fields
+ - name: reject-missing-spec
+   exec: kubectl apply -n $TEST_USER_NAMESPACE -f manifests/failures/missing-spec.yaml
+   assert:
+     exit-code: 1
+     err:
+       contains: "spec: Required value"
+
+ - name: reject-missing-replicas
+   exec: kubectl apply -n $TEST_USER_NAMESPACE -f manifests/failures/missing-replicas.yaml
+   assert:
+     exit-code: 1
+     err:
+       contains: "spec.replicas: Required value"
+
+ - name: reject-empty-replicas
+   exec: kubectl apply -n $TEST_USER_NAMESPACE -f manifests/failures/empty-replicas.yaml
+   assert:
+     exit-code: 1
+     err:
+       contains: spec.replicas in body should have at least 1 items
+
+ - name: reject-duplicate-replica-regions
+   exec: kubectl apply -n $TEST_USER_NAMESPACE -f manifests/failures/duplicate-replica-regions.yaml
+   assert:
+     exit-code: 1
+     err:
+       contains: "spec.replicas[1]: Duplicate value"
+
+ - name: reject-missing-retention-days
+   exec: kubectl apply -n $TEST_USER_NAMESPACE -f manifests/failures/missing-retention-days.yaml
+   assert:
+     exit-code: 1
+     err:
+       contains: "spec.retentionDays: Required value"
+
+ - name: reject-auth-without-enabled
+   exec: kubectl apply -n $TEST_USER_NAMESPACE -f manifests/failures/auth-without-enabled.yaml
+   assert:
+     exit-code: 1
+     err:
+       contains: "spec.apiKeyAuth.enabled: Required value"
+
+ # Enums, sets and one-of rules
+ - name: reject-unknown-search-attribute-type
+   exec: kubectl apply -n $TEST_USER_NAMESPACE -f manifests/failures/unknown-search-attribute-type.yaml
+   assert:
+     exit-code: 1
+     err:
+       contains: 'spec.searchAttributes.CustomerId: Unsupported value: "keyword"'
+
+ - name: reject-duplicate-connectivity-rule-ids
+   exec: kubectl apply -n $TEST_USER_NAMESPACE -f manifests/failures/duplicate-connectivity-rule-ids.yaml
+   assert:
+     exit-code: 1
+     err:
+       contains: "spec.connectivityRuleIDs[1]: Duplicate value"
+
+ - name: reject-both-capacity-modes
+   exec: kubectl apply -n $TEST_USER_NAMESPACE -f manifests/failures/both-capacity-modes.yaml
+   assert:
+     exit-code: 1
+     err:
+       contains: exactly one of onDemand or provisioned must be set
+
+ - name: reject-no-capacity-mode
+   exec: kubectl apply -n $TEST_USER_NAMESPACE -f manifests/failures/no-capacity-mode.yaml
+   assert:
+     exit-code: 1
+     err:
+       contains: exactly one of onDemand or provisioned must be set
+
+ - name: reject-unknown-encryption-validation-mode
+   exec: kubectl apply -n $TEST_USER_NAMESPACE -f manifests/failures/unknown-encryption-validation-mode.yaml
+   assert:
+     exit-code: 1
+     err:
+       contains: 'spec.encryptionValidation.mode: Unsupported value: "Strict"'
+
+ # Updates
+ #
+ # Each update case replaces a stored Namespace with a manifest from
+ # manifests/updates/ that changes exactly one thing.
+ #
+ - name: create-immutable-fields
+   kube.apply: manifests/immutable-fields.yaml
+
+ - name: reject-changing-project
+   exec: kubectl replace -n $TEST_USER_NAMESPACE -f manifests/updates/change-project.yaml
+   assert:
+     exit-code: 1
+     err:
+       contains: project cannot be added, changed or removed after creation
+
+ - name: reject-removing-project
+   exec: kubectl replace -n $TEST_USER_NAMESPACE -f manifests/updates/remove-project.yaml
+   assert:
+     exit-code: 1
+     err:
+       contains: project cannot be added, changed or removed after creation
+
+ - name: reject-removing-search-attribute
+   exec: kubectl replace -n $TEST_USER_NAMESPACE -f manifests/updates/remove-search-attribute.yaml
+   assert:
+     exit-code: 1
+     err:
+       contains: searchAttributes cannot be removed or have their type changed
+
+ - name: reject-changing-search-attribute-type
+   exec: kubectl replace -n $TEST_USER_NAMESPACE -f manifests/updates/change-search-attribute-type.yaml
+   assert:
+     exit-code: 1
+     err:
+       contains: searchAttributes cannot be removed or have their type changed
+
+ - name: create-namespace-without-project
+   kube.apply: manifests/minimal.yaml
+
+ - name: reject-adding-project
+   exec: kubectl replace -n $TEST_USER_NAMESPACE -f manifests/updates/add-project.yaml
+   assert:
+     exit-code: 1
+     err:
+       contains: project cannot be added, changed or removed after creation
+
+ - name: create-mutable-fields
+   kube.apply: manifests/mutable-fields.yaml
+
+ - name: accept-update-of-mutable-fields
+   exec: kubectl replace -n $TEST_USER_NAMESPACE -f manifests/updates/mutable-fields.yaml
+
+ - name: check-mutable-fields-updated
+   kube.get: namespaces.cloud.temporal.io/mutable-fields
+   assert:
+     matches:
+       spec:
+         retentionDays: 7
+         replicas:
+           - region: aws-us-west-2
+           - region: aws-us-east-1
+         searchAttributes:
+           CustomerId: Keyword
+           OrderId: Int
+
+ - name: delete-example
+   kube.delete: namespaces.cloud.temporal.io/payments-prod
+
+ - name: delete-immutable-fields
+   kube.delete: namespaces.cloud.temporal.io/immutable-fields
+
+ - name: delete-namespace-without-project
+   kube.delete: namespaces.cloud.temporal.io/minimal
+
+ - name: delete-mutable-fields
+   kube.delete: namespaces.cloud.temporal.io/mutable-fields
+
+ - name: ensure-namespaces-deleted
+   kube.get: namespaces.cloud.temporal.io
+   assert:
+     len: 0

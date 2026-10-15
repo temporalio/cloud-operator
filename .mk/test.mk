@@ -93,7 +93,7 @@ test-clean-build:
 test-clean: test-clean-build test-cluster-delete ## Clean up the test environment.
 
 .PHONY: test-e2e
-test-e2e: test-e2e-install test-e2e-namespace ## Run all end to end tests.
+test-e2e: test-e2e-install test-e2e-namespace-validation test-e2e-namespace ## Run all end to end tests.
 
 .PHONY: test-e2e-install
 test-e2e-install: $(GDT) ## Test that expected artifacts are all present in test cluster.
@@ -102,3 +102,7 @@ test-e2e-install: $(GDT) ## Test that expected artifacts are all present in test
 .PHONY: test-e2e-namespace
 test-e2e-namespace: $(GDT) ## Test lifecycle management of Temporal Cloud Namespace by the temporal-resource-operator.
 	@TEST_USER_NAMESPACE=tro-e2e-cluster $(GDT) $(TEST_GDT_ARGS) run test/e2e/namespace/happy-default.yaml
+
+.PHONY: test-e2e-namespace-validation
+test-e2e-namespace-validation: $(GDT) ## Test that the Namespace CRD accepts valid and rejects invalid Namespace manifests.
+	@TEST_USER_NAMESPACE=tro-e2e-validation $(GDT) $(TEST_GDT_ARGS) run test/e2e/namespace/validation.yaml

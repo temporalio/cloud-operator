@@ -1,0 +1,4 @@
+apiVersion: cloud.temporal.io/v1alpha1
+kind: Namespace
+metadata:
+  name: missing-spec

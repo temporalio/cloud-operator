@@ -20,6 +20,12 @@ kind: Namespace
 metadata:
   name: my-org-namespace
   namespace: temporal-cloud  # NOTE: this is the Kubernetes Namespace, not the Temporal Cloud Namespace.
+spec:
+  replicas:
+    - region: aws-us-west-2
+  retentionDays: 30
+  apiKeyAuth:
+    enabled: true
 EOF
 ```
 
@@ -57,6 +63,63 @@ $ kubectl apply -n temporal-resource-operator -k "https://github.com/temporalio/
 # Using the Operator
 
 ## Create a new Temporal Cloud Namespace
+
+Describe the Temporal Cloud Namespace in a `Namespace` manifest, such as
+[`examples/namespace.yaml`](examples/namespace.yaml):
+
+```yaml
+apiVersion: cloud.temporal.io/v1alpha1
+kind: Namespace
+metadata:
+  name: payments-prod
+spec:
+  tags:
+    environment: production
+    team: payments
+  replicas:
+    - region: aws-us-west-2
+  retentionDays: 30
+  apiKeyAuth:
+    enabled: true
+  capacity:
+    onDemand: {}
+  description: Payment workflows for production.
+```
+
+Apply it to the Kubernetes Namespace that holds your Temporal Cloud
+resources:
+
+```bash
+$ kubectl apply -n temporal-cloud -f examples/namespace.yaml
+namespace.cloud.temporal.io/payments-prod created
+```
+
+The Temporal Cloud Namespace takes its name from `metadata.name`, which must
+be a valid Temporal Cloud Namespace name. To list every `spec` field with the
+Temporal Cloud field it maps to, run:
+
+```bash
+$ kubectl explain namespaces.spec --api-version=cloud.temporal.io/v1alpha1
+```
+
+The Kubernetes API server checks the structure of the manifest when you apply
+it:
+
+```bash
+$ kubectl apply -n temporal-cloud -f examples/namespace.yaml  # with both onDemand and provisioned capacity
+The Namespace "payments-prod" is invalid: spec.capacity: Invalid value: exactly one of onDemand or provisioned must be set
+```
+
+The API server checks that:
+
+* `replicas` and `retentionDays` are set, and `replicas` is not empty.
+* Enum values are valid, replica regions are unique, and exactly one capacity
+  mode is set.
+* Updates do not change `project`, and do not remove search attributes or
+  change their type.
+
+Temporal Cloud reports all other errors, such as invalid tags or a retention
+period out of range.
 
 ## Modify a Temporal Cloud Namespace
 
@@ -179,6 +242,14 @@ manages the lifecycle of Temporal Cloud resources:
 
 ```
 make test-e2e-cluster
+```
+
+To run functional tests that verify that the Namespace CRD accepts valid
+manifests, including `examples/namespace.yaml`, and rejects invalid ones at
+`kubectl apply`:
+
+```
+make test-e2e-namespace-validation
 ```
 
 [gdt]: https://github.com/gdt-dev/gdt

@@ -1,0 +1,9 @@
+apiVersion: cloud.temporal.io/v1alpha1
+kind: Namespace
+metadata:
+  name: empty-replicas
+spec:
+  replicas: []
+  retentionDays: 30
+  apiKeyAuth:
+    enabled: true
