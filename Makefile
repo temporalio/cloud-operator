@@ -16,5 +16,6 @@ include .mk/build.mk
 include .mk/go.mk
 include .mk/gen.mk
 include .mk/test.mk
+include .mk/e2e-cloud.mk
 include .mk/install.mk
 include .mk/help.mk
