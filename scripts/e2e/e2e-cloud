@@ -1,0 +1,442 @@
+#!/usr/bin/env bash
+#
+# Temporal Cloud helpers for the resource-operator e2e tests.
+#
+# Wraps the pinned `temporal-cloud` CLI (installed by `make` into bin/). Every
+# call authenticates with the e2e API key only. The CLI would otherwise fall
+# back to the developer's `temporal cloud login` session.
+#
+set -o errexit
+set -o nounset
+set -o pipefail
+
+CLI="${TEMPORAL_CLOUD_CLI:-temporal-cloud}"
+DEFAULT_KEY_FILE="${HOME}/.config/temporalio/resource-operator-e2e-api-key"
+E2E_PREFIX="tro-e2e-"
+# Each run has a run ID, e.g. hs6or-a1b2, made of:
+#   - the run's start time: minutes since 1970 in base 36, 5 characters
+#   - a dash and 4 random lowercase letters or digits
+# Tests name their namespaces tro-e2e-<run ID>[-<suffix>], e.g.
+# tro-e2e-hs6or-a1b2-basic, where the optional suffix is chosen by the test:
+# lowercase letters, digits and dashes, not ending with a dash.
+# The whole name must fit Temporal Cloud's limit of NAME_MAX characters.
+RUN_ID_RE="[0-9a-z]{5}-[0-9a-z]{4}"
+TEST_NAME_RE="^${E2E_PREFIX}${RUN_ID_RE}(-[0-9a-z-]*[0-9a-z])?\$"
+NAME_MAX=39
+# Digits for base 36, in sort order, so fixed-width IDs sort by time.
+B36_DIGITS="0123456789abcdefghijklmnopqrstuvwxyz"
+KEY_EXPIRY_WARN_DAYS=7
+POLL_SECONDS=10
+RUNBOOK="README.md#temporal-cloud-test-account"
+
+usage() {
+	cat <<EOF
+Usage: e2e-cloud <command> [args]
+
+Temporal Cloud helpers for the e2e tests.
+
+Run setup and cleanup (used by make and the first and last steps of tests):
+  preflight                     Check the e2e API key, project and namespace
+                                access, and list leftover test namespaces.
+  new-run-id                    Print a fresh run ID, e.g. hs6or-a1b2. Tests
+                                name namespaces tro-e2e-<run ID>-<suffix>.
+  cleanup-run <run-id>          Delete every namespace from one run
+                                (tro-e2e-<run ID>...) and wait until they are
+                                gone. Tests run it as their last step; run it
+                                by hand after an interrupted run.
+
+Resource checks and actions (used by gdt test steps):
+  namespace-list [prefix]       Print namespace names, optionally only those
+                                starting with prefix.
+  namespace-exists [--active] <name>
+                                Succeed if the namespace exists; with
+                                --active, only once it is active.
+  namespace-does-not-exist <name>
+                                Succeed if the namespace does not exist.
+  namespace-create <name>       Create a minimal test namespace. Its
+                                description records manager=resource-operator,
+                                the run ID and the owner.
+  namespace-delete <name>       Delete a test namespace, turning off delete
+                                protection first.
+
+Only test namespace names (tro-e2e-...) can be created or deleted.
+
+Environment:
+  TEMPORAL_CLOUD_API_KEY       API key for the e2e service account.
+  TEMPORAL_CLOUD_API_KEY_FILE  Read the key from this file when
+                               TEMPORAL_CLOUD_API_KEY is unset
+                               (default: ${DEFAULT_KEY_FILE}).
+  TEST_CLOUD_PROJECT_ID        Optional. Limits namespace operations to this
+                               project.
+  TEST_CLOUD_REGION            Region for new namespaces
+                               (default: aws-us-west-2).
+  TEST_CLOUD_DELETE_TIMEOUT    How long cleanup-run waits for deletes
+                               (default: 10m).
+  TEST_CLOUD_OWNER             Owner recorded on new namespaces
+                               (default: \$USER).
+  TEMPORAL_CLOUD_CLI           CLI binary to use (default: temporal-cloud).
+
+See ${RUNBOOK}.
+EOF
+}
+
+ok() { echo "✓ $*"; }
+note() { echo "- $*"; }
+warn() { echo "! $*" >&2; }
+die() {
+	echo "✗ $*" >&2
+	exit 1
+}
+
+need() {
+	command -v "$1" >/dev/null 2>&1 || die "$1 not found on PATH. $2"
+}
+
+# load_key sets TEMPORAL_CLOUD_API_KEY, reading it from the key file if it
+# isn't already in the environment, and KEY_SOURCE to where it came from.
+load_key() {
+	[[ -z "${KEY_SOURCE:-}" ]] || return 0
+	if [[ -n "${TEMPORAL_CLOUD_API_KEY:-}" ]]; then
+		KEY_SOURCE="TEMPORAL_CLOUD_API_KEY"
+		return
+	fi
+	local file="${TEMPORAL_CLOUD_API_KEY_FILE:-$DEFAULT_KEY_FILE}"
+	[[ -r "$file" ]] || die "no API key: set TEMPORAL_CLOUD_API_KEY or create ${file}. See ${RUNBOOK}"
+	TEMPORAL_CLOUD_API_KEY="$(<"$file")"
+	[[ -n "$TEMPORAL_CLOUD_API_KEY" ]] || die "API key file ${file} is empty. See ${RUNBOOK}"
+	KEY_SOURCE="$file"
+}
+
+# tc runs the Temporal Cloud CLI with JSON output, authenticated only with the
+# e2e key. The key goes through the environment, not argv, so it doesn't show
+# up in process listings.
+tc() {
+	[[ -n "${TEMPORAL_CLOUD_API_KEY:-}" ]] || die "internal error: no API key loaded"
+	TEMPORAL_API_KEY="$TEMPORAL_CLOUD_API_KEY" "$CLI" "$@" --output json --color never --auto-confirm
+}
+
+# b36 prints n in base 36, zero-padded to width characters. Fixed-width base 36
+# sorts in numeric order, so IDs made from the time sort by time.
+b36() {
+	local n="$1" width="$2" s=""
+	while ((n > 0)); do
+		s="${B36_DIGITS:n % 36:1}${s}"
+		n=$((n / 36))
+	done
+	while ((${#s} < width)); do
+		s="0${s}"
+	done
+	echo "$s"
+}
+
+now_minutes() {
+	echo $(($(date -u +%s) / 60))
+}
+
+# new_run_id prints a fresh run ID: <start minute>-<random>. The start minute
+# is minutes since the Unix epoch in base 36 (5 characters until 2084), so the
+# age of a namespace can be read from its name. The random part keeps runs
+# that start in the same minute apart.
+new_run_id() {
+	local rand=$(((RANDOM * 32768 + RANDOM) % (36 ** 4)))
+	echo "$(b36 "$(now_minutes)" 5)-$(b36 "$rand" 4)"
+}
+
+# require_test_name stops unless name is a namespace this harness creates:
+# tro-e2e-<run ID> with an optional suffix, no longer than Temporal Cloud
+# allows. Every command that changes Cloud calls it first.
+require_test_name() {
+	local name="$1"
+	[[ "$name" =~ $TEST_NAME_RE ]] ||
+		die "refusing: \"${name}\" is not a ${E2E_PREFIX} test namespace name"
+	((${#name} <= NAME_MAX)) ||
+		die "\"${name}\" is ${#name} characters; Temporal Cloud allows at most ${NAME_MAX}"
+}
+
+# name_age_minutes prints how many minutes ago the run that created the test
+# namespace name started. Call require_test_name first.
+name_age_minutes() {
+	local id="${1#"$E2E_PREFIX"}"
+	id="${id%%-*}"
+	echo $(($(now_minutes) - 36#$id))
+}
+
+# run_id_of prints the run ID part of the test namespace name. Call
+# require_test_name first.
+run_id_of() {
+	local id="${1#"$E2E_PREFIX"}"
+	echo "${id:0:10}"
+}
+
+# namespace_description prints the description recorded on a new test
+# namespace, so anyone looking at it in Cloud can tell which run and whose it
+# is, e.g. "manager=resource-operator run-id=hs6or-a1b2 owner=tomba".
+namespace_description() {
+	local owner="${TEST_CLOUD_OWNER:-${USER:-unknown}}"
+	# Keep the description plain printable ASCII, as Cloud requires.
+	owner="$(LC_ALL=C tr -cd 'A-Za-z0-9._@-' <<<"$owner")"
+	echo "manager=resource-operator run-id=$(run_id_of "$1") owner=${owner:-unknown}"
+}
+
+# require_run_id stops unless id is a whole run ID, so cleanup can never match
+# more than one run's namespaces.
+require_run_id() {
+	[[ "$1" =~ ^${RUN_ID_RE}$ ]] ||
+		die "refusing: \"$1\" is not a run ID (expected e.g. hs6or-a1b2)"
+}
+
+# to_seconds converts a duration such as 90s, 10m or 2h to seconds.
+to_seconds() {
+	local d="$1"
+	case "$d" in
+	*[0-9]s) echo "${d%s}" ;;
+	*[0-9]m) echo $((${d%m} * 60)) ;;
+	*[0-9]h) echo $((${d%h} * 3600)) ;;
+	*) die "invalid duration \"${d}\": use a number followed by s, m or h" ;;
+	esac
+}
+
+# Note: bash ignores errexit inside a function called as `f || ...`, and
+# cleanup calls functions that way. So every CLI call below checks its own
+# result with `|| die` instead of relying on errexit.
+
+# namespaces prints every visible namespace as one JSON object per line,
+# following pages, and limited to TEST_CLOUD_PROJECT_ID when it is set.
+namespaces() {
+	local token="" page
+	load_key
+	while :; do
+		page="$(tc namespace list \
+			${TEST_CLOUD_PROJECT_ID:+--project-id "$TEST_CLOUD_PROJECT_ID"} \
+			${token:+--page-token "$token"})" || die "listing namespaces failed (error above)"
+		jq -c '(.Namespaces // [])[]' <<<"$page"
+		token="$(jq -r '.NextPageToken // ""' <<<"$page")"
+		[[ -n "$token" ]] || break
+	done
+}
+
+# namespace_json prints the JSON object for the namespace with this name, or
+# nothing if it doesn't exist.
+namespace_json() {
+	local all
+	all="$(namespaces)" || exit 1
+	jq -cn --arg n "$1" 'first(inputs | select(.spec.name == $n)) // empty' <<<"$all"
+}
+
+# namespace_state prints the namespace's state, e.g. RESOURCE_STATE_ACTIVE, or
+# "absent" if it doesn't exist. A deleted namespace counts as absent.
+namespace_state() {
+	local ns state
+	ns="$(namespace_json "$1")" || exit 1
+	if [[ -z "$ns" ]]; then
+		echo "absent"
+		return
+	fi
+	state="$(jq -r '.state' <<<"$ns")"
+	[[ "$state" != "RESOURCE_STATE_DELETED" ]] || state="absent"
+	echo "$state"
+}
+
+cmd_namespace_list() {
+	local all
+	all="$(namespaces)" || exit 1
+	jq -r --arg p "${1:-}" '.spec.name | select(startswith($p))' <<<"$all"
+}
+
+cmd_namespace_exists() {
+	local active=false name state
+	if [[ "${1:-}" == "--active" ]]; then
+		active=true
+		shift
+	fi
+	name="${1:?usage: namespace-exists [--active] <name>}"
+	state="$(namespace_state "$name")" || exit 1
+	case "$state" in
+	absent | RESOURCE_STATE_DELETING) die "${name}: not found (${state})" ;;
+	RESOURCE_STATE_ACTIVE) ok "${name}: ${state}" ;;
+	*)
+		[[ "$active" == false ]] || die "${name}: not active yet (${state})"
+		ok "${name}: ${state}"
+		;;
+	esac
+}
+
+cmd_namespace_does_not_exist() {
+	local name="${1:?usage: namespace-does-not-exist <name>}" state
+	state="$(namespace_state "$name")" || exit 1
+	[[ "$state" == "absent" ]] || die "${name}: still present (${state})"
+	ok "${name}: does not exist"
+}
+
+cmd_namespace_create() {
+	local name="${1:?usage: namespace-create <name>}"
+	require_test_name "$name"
+	load_key
+	tc namespace create --name "$name" \
+		--region "${TEST_CLOUD_REGION:-aws-us-west-2}" \
+		--retention-days 1 --api-key-auth-enabled \
+		--description "$(namespace_description "$name")" \
+		${TEST_CLOUD_PROJECT_ID:+--project-id "$TEST_CLOUD_PROJECT_ID"} >/dev/null ||
+		die "${name}: create failed (error above)"
+	ok "${name}: created"
+}
+
+cmd_namespace_delete() {
+	local name="${1:?usage: namespace-delete <name>}" ns full state
+	require_test_name "$name"
+	ns="$(namespace_json "$name")" || exit 1
+	if [[ -z "$ns" ]]; then
+		ok "${name}: already gone"
+		return
+	fi
+	full="$(jq -r '.namespace' <<<"$ns")"
+	state="$(jq -r '.state' <<<"$ns")"
+	case "$state" in
+	RESOURCE_STATE_DELETING | RESOURCE_STATE_DELETED)
+		ok "${name}: already deleting"
+		return
+		;;
+	esac
+	if jq -e '.spec.lifecycle.enableDeleteProtection == true' <<<"$ns" >/dev/null; then
+		tc namespace lifecycle set --namespace "$full" --enable-delete-protection=false >/dev/null ||
+			die "${name}: turning off delete protection failed (error above)"
+		note "${name}: turned off delete protection"
+	fi
+	tc namespace delete --namespace "$full" --idempotent >/dev/null ||
+		die "${name}: delete failed (error above)"
+	ok "${name}: deleted"
+}
+
+cmd_cleanup_run() {
+	local run_id="${1:?usage: cleanup-run <run-id>}" prefix names name timeout deadline left state
+	require_run_id "$run_id"
+	prefix="${E2E_PREFIX}${run_id}"
+	# The run's prefix plus "-" or end of name, so tro-e2e-hs6or-a1b2 never
+	# matches another run's tro-e2e-hs6or-a1b2x.
+	names="$(cmd_namespace_list "$prefix")" || die "cleanup: listing namespaces failed"
+	names="$(grep -E "^${prefix}(-|\$)" <<<"$names" || true)"
+	if [[ -z "$names" ]]; then
+		ok "cleanup: nothing to delete for ${prefix}"
+		return
+	fi
+	while read -r name; do
+		(cmd_namespace_delete "$name") || warn "${name}: delete failed"
+	done <<<"$names"
+
+	timeout="$(to_seconds "${TEST_CLOUD_DELETE_TIMEOUT:-10m}")" || exit 1
+	deadline=$(($(date -u +%s) + timeout))
+	while :; do
+		left=""
+		while read -r name; do
+			state="$(namespace_state "$name")" || state="unknown (listing failed)"
+			[[ "$state" == "absent" ]] || left="${left} ${name}"
+		done <<<"$names"
+		if [[ -z "$left" ]]; then
+			ok "cleanup: all namespaces for ${prefix} are gone"
+			return
+		fi
+		(($(date -u +%s) < deadline)) ||
+			die "cleanup: still present after ${TEST_CLOUD_DELETE_TIMEOUT:-10m}:${left}"
+		sleep "$POLL_SECONDS"
+	done
+}
+
+cmd_preflight() {
+	local who principal role expiry secs project all leftovers name owner
+
+	need jq "Install it with 'brew install jq' or 'apt-get install jq'."
+	need "$CLI" "Run through make, which installs the pinned CLI into bin/."
+
+	load_key
+	ok "API key loaded from ${KEY_SOURCE}"
+
+	who="$(tc whoami)" || die "Temporal Cloud rejected the API key (error above). Expired or revoked? See ${RUNBOOK}"
+	principal="$(jq -r '
+		if .serviceAccount then "service account \(.serviceAccount.spec.name)"
+		elif .user then "user \(.user.spec.email // .user.id)"
+		else "unknown principal" end' <<<"$who")"
+	role="$(jq -r '(.serviceAccount // .user // {}).spec.access.accountAccess.role // "unknown"' <<<"$who")"
+	ok "identity: ${principal} (account role: ${role})"
+	if jq -e '.serviceAccount == null' <<<"$who" >/dev/null; then
+		warn "the key does not belong to a service account. Use a resource-operator-e2e service account key. See ${RUNBOOK}"
+	fi
+	case "$role" in
+	ROLE_OWNER | ROLE_ADMIN | ROLE_GLOBAL_ADMIN)
+		warn "the key has the ${role} account role, more than the e2e tests need. See ${RUNBOOK}"
+		;;
+	esac
+
+	expiry="$(jq -r '.principalApiKey.spec.expiryTime // ""' <<<"$who")"
+	if [[ -z "$expiry" ]]; then
+		warn "could not read the API key expiry"
+	else
+		secs="$(jq -r '.principalApiKey.spec.expiryTime | sub("\\.[0-9]+"; "") | fromdateiso8601 - now | floor' <<<"$who")"
+		if ((secs < KEY_EXPIRY_WARN_DAYS * 86400)); then
+			warn "API key expires ${expiry} (in $((secs / 3600))h). Rotate it. See ${RUNBOOK}"
+		else
+			ok "API key expires ${expiry} (in $((secs / 86400)) days)"
+		fi
+	fi
+
+	if [[ -n "${TEST_CLOUD_PROJECT_ID:-}" ]]; then
+		project="$(tc project get --project-id "$TEST_CLOUD_PROJECT_ID")" ||
+			die "project ${TEST_CLOUD_PROJECT_ID} not found or not accessible with this key. Bootstrap not done? See ${RUNBOOK}"
+		ok "project: $(jq -r '.spec.displayName // "?"' <<<"$project") (${TEST_CLOUD_PROJECT_ID})"
+	else
+		note "scope: whole account (TEST_CLOUD_PROJECT_ID not set)"
+	fi
+
+	all="$(namespaces)" || die "the key cannot list namespaces. See ${RUNBOOK}"
+	ok "key can list namespaces ($(jq -s 'length' <<<"$all") visible)"
+
+	# Test namespaces that already exist belong to a run in progress or to one
+	# that was killed. Nothing deletes another run's namespaces automatically,
+	# so list them with their owner.
+	leftovers="$(jq -r --arg p "$E2E_PREFIX" '
+		select(.spec.name | startswith($p))
+		| [.spec.name, (((.spec.description // "") | capture("owner=(?<o>[^ ]+)").o) // "unknown")]
+		| @tsv' <<<"$all")"
+	if [[ -n "$leftovers" ]]; then
+		warn "test namespaces already exist (a run in progress, or left behind by one):"
+		while IFS=$'\t' read -r name owner; do
+			if [[ "$name" =~ $TEST_NAME_RE ]]; then
+				warn "  ${name}: run ID $(run_id_of "$name"), owner ${owner}, started $(name_age_minutes "$name")m ago"
+			else
+				warn "  ${name}: owner ${owner}"
+			fi
+		done <<<"$leftovers"
+		warn "If one is yours and its run has ended, delete it with: e2e-cloud cleanup-run <run ID>"
+	fi
+
+	ok "preflight passed"
+}
+
+main() {
+	local cmd="${1:-help}"
+	[[ $# -eq 0 ]] || shift
+	# Load the key once, up front. A key loaded inside $(...) would be lost
+	# when the subshell exits, leaving later CLI calls without one.
+	case "$cmd" in
+	preflight | cleanup-run | namespace-list | namespace-exists | \
+		namespace-does-not-exist | namespace-create | namespace-delete)
+		load_key
+		;;
+	esac
+	case "$cmd" in
+	preflight) cmd_preflight "$@" ;;
+	namespace-list) cmd_namespace_list "$@" ;;
+	namespace-exists) cmd_namespace_exists "$@" ;;
+	namespace-does-not-exist) cmd_namespace_does_not_exist "$@" ;;
+	namespace-create) cmd_namespace_create "$@" ;;
+	namespace-delete) cmd_namespace_delete "$@" ;;
+	cleanup-run) cmd_cleanup_run "$@" ;;
+	new-run-id) new_run_id ;;
+	help | -h | --help) usage ;;
+	*)
+		usage >&2
+		exit 2
+		;;
+	esac
+}
+
+main "$@"

@@ -1,0 +1,45 @@
+name: cloud-basic
+description: |
+  Checks that the e2e harness can create, check and delete a namespace in the
+  Temporal Cloud test account, without the operator.
+
+  Run with `make test-cloud-harness`, which sets TEST_CLOUD_RUN_ID. The last
+  step deletes this run's namespaces, so the steps before it use assertions
+  that don't stop the test. If the run is interrupted, the next preflight
+  lists what was left; delete it with `e2e-cloud cleanup-run <run ID>`.
+
+depends:
+  - name: e2e-cloud
+
+tests:
+ - name: preflight
+   exec: e2e-cloud preflight
+   require:
+     exit-code: 0
+
+ - name: namespace-absent-before-create
+   exec: e2e-cloud namespace-does-not-exist tro-e2e-${TEST_CLOUD_RUN_ID}-basic
+
+ - name: create-namespace
+   exec: e2e-cloud namespace-create tro-e2e-${TEST_CLOUD_RUN_ID}-basic
+   timeout: 10m
+
+ - name: namespace-active
+   exec: e2e-cloud namespace-exists --active tro-e2e-${TEST_CLOUD_RUN_ID}-basic
+   timeout: 10m
+   retry:
+     interval: 15s
+
+ - name: delete-namespace
+   exec: e2e-cloud namespace-delete tro-e2e-${TEST_CLOUD_RUN_ID}-basic
+   timeout: 10m
+
+ - name: namespace-absent-after-delete
+   exec: e2e-cloud namespace-does-not-exist tro-e2e-${TEST_CLOUD_RUN_ID}-basic
+   timeout: 10m
+   retry:
+     interval: 15s
+
+ - name: cleanup
+   exec: e2e-cloud cleanup-run ${TEST_CLOUD_RUN_ID}
+   timeout: 10m
