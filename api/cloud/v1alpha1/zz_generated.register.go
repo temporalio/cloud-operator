@@ -46,6 +46,10 @@ func init() {
 // Adds the list of known types to Scheme.
 func addKnownTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(SchemeGroupVersion,
+		&ClusterConnection{},
+		&ClusterConnectionList{},
+		&Connection{},
+		&ConnectionList{},
 		&Namespace{},
 		&NamespaceList{},
 	)
