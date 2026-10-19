@@ -13,6 +13,16 @@ tests:
    require:
      len: 1
 
+ - name: ensure-connection-crd
+   kube.get: crds/connections.cloud.temporal.io
+   require:
+     len: 1
+
+ - name: ensure-clusterconnection-crd
+   kube.get: crds/clusterconnections.cloud.temporal.io
+   require:
+     len: 1
+
  - name: ensure-serviceaccount
    kube.get: serviceaccounts/temporal-resource-operator
    require:

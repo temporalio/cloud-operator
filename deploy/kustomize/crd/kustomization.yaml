@@ -3,6 +3,8 @@
 # should be run by config/default
 resources:
 - bases/cloud.temporal.io_namespaces.yaml
+- bases/cloud.temporal.io_connections.yaml
+- bases/cloud.temporal.io_clusterconnections.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:
