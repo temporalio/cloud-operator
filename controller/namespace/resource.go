@@ -1,7 +1,6 @@
 package namespace
 
 import (
-	"context"
 	"log/slog"
 
 	"github.com/temporalio/kube-temporal/pkg/kube/transform"
@@ -11,31 +10,16 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	ctrlrt "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	cloudv1alpha1 "github.com/temporalio/resource-operator/api/cloud/v1alpha1"
+	tcloudv1alpha1 "github.com/temporalio/resource-operator/api/cloud/v1alpha1"
 )
-
-// resourceFromRequest returns a Resource representing the requested Kubernetes
-// namespaced object.
-func (c *controller) resourceFromRequest(
-	ctx context.Context,
-	req ctrlrt.Request,
-) (types.Resource, error) {
-	cr := &cloudv1alpha1.Namespace{}
-	// We use APIReader in order to prevent stale reads.
-	if err := c.Reader.Get(ctx, req.NamespacedName, cr); err != nil {
-		return nil, err
-	}
-	return &res{cr}, nil
-}
 
 // res wraps a Namespace CR and implements the types.Resource
 // interface.
 type res struct {
 	// cr is the Kubernetes-native custom resource.
-	cr *cloudv1alpha1.Namespace
+	cr *tcloudv1alpha1.Namespace
 }
 
 // IsBeingDeleted returns true if the Kubernetes resource has a non-zero
@@ -59,7 +43,7 @@ func (r res) RuntimeObject() runtime.Object {
 // GroupVersionKind returns the GroupVersionKind that the Resource
 // represents.
 func (r res) GroupVersionKind() schema.GroupVersionKind {
-	return cloudv1alpha1.SchemeGroupVersion.WithKind("Namespace")
+	return tcloudv1alpha1.SchemeGroupVersion.WithKind("Namespace")
 }
 
 // Conditions returns the Resource's collection of Conditions from its status
@@ -90,4 +74,8 @@ func (r *res) LogValue() slog.Value {
 	return resource.LogValue(r)
 }
 
-var _ types.Resource = (*res)(nil)
+// NewResource returns the [types.Resource] wrapping the supplied
+// [tcloudv1alpha1.Namespace] object.
+func NewResource(cr *tcloudv1alpha1.Namespace) types.Resource {
+	return &res{cr}
+}

@@ -2,79 +2,142 @@ package namespace
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
-	"github.com/samber/lo"
-	"github.com/temporalio/kube-temporal/pkg/condition"
-	ctrlerrors "github.com/temporalio/kube-temporal/pkg/controller/errors"
 	ctrlreqlog "github.com/temporalio/kube-temporal/pkg/controller/request/log"
-	"github.com/temporalio/kube-temporal/pkg/controller/requeue"
 	"github.com/temporalio/kube-temporal/pkg/types"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	tcclient "go.temporal.io/cloud-sdk/cloudclient"
 	ctrlrt "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	kclient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	tcloudv1alpha1 "github.com/temporalio/resource-operator/api/cloud/v1alpha1"
+	"github.com/temporalio/resource-operator/pkg/reconciler/base"
 )
 
-// Reconcile performs a full reconciliation for the object referred to by the
-// Request.
-//
-// If the returned error is non-nil, the Result is ignored and the request will
-// be requeued using exponential backoff. The only exception is if the error is
-// a TerminalError in which case no requeuing happens.
-//
-// If the error is nil and the returned Result has a non-zero
-// result.RequeueAfter, the request will be requeued after the specified
-// duration.
-//
-// If the error is nil and result.RequeueAfter is zero and result.Requeue is
-// true, the request will be requeued using exponential backoff.
-func (c *controller) Reconcile(
+// NewrOption modifies the Reconciler returned from NewReconciler.
+type NewReconcilerOption func(*Reconciler)
+
+// WithDefaultCloudConnectionSpec registers the supplied
+// [tcloudv1alpha1.ConnectionSpec] object as the default cloud connection spec
+// for the Reconciler.
+func WithDefaultCloudConnectionSpec(
+	spec tcloudv1alpha1.ConnectionSpec,
+) NewReconcilerOption {
+	return func(r *Reconciler) {
+		r.SetDefaultCloudConnectionSpec(spec)
+	}
+}
+
+// WithDefaultCloudClient registers the supplied [tcclient.Clinet] as the
+// default cloud client fallback for the Reconciler.
+func WithDefaultCloudClient(tcc tcclient.Client) NewReconcilerOption {
+	return func(r *Reconciler) {
+		r.SetDefaultCloudClient(tcc)
+	}
+}
+
+// WithKubeClient sets the supplied Kubernetes client for the Reconciler.
+func WithKubeClient(kc kclient.Client) NewReconcilerOption {
+	return func(r *Reconciler) {
+		r.SetKubeClient(kc)
+	}
+}
+
+// NewReconciler returns a new [types.Reconciler] that can Reconciler
+// [ttcloudv1alpha1.Namespace] resources.
+func NewReconciler(opts ...NewReconcilerOption) *Reconciler {
+	r := Reconciler{}
+	for _, opt := range opts {
+		opt(&r)
+	}
+	return &r
+}
+
+// Reconciler wraps the base Reconciler and implements the [types.Reconciler]
+// interface.
+type Reconciler struct {
+	base.Reconciler
+}
+
+// AdaptBuilder returns a [*ctrlrt.Builder] adapted from the supplied
+// [*ctrlrt.Builder], typically calling the [ctrlrt.Builder.For] method with
+// the Reconciler's managed Kind prototype.
+func (r *Reconciler) AdaptBuilder(builder *ctrlrt.Builder) *ctrlrt.Builder {
+	return builder.For(&tcloudv1alpha1.Namespace{})
+}
+
+// ResourceFromRequest returns a Resource representing the requested Kubernetes
+// namespaced object.
+func (r *Reconciler) ResourceFromRequest(
 	ctx context.Context,
 	req ctrlrt.Request,
-) (ctrlrt.Result, error) {
-	desired, err := c.resourceFromRequest(ctx, req)
+) (types.Resource, error) {
+	cr := &tcloudv1alpha1.Namespace{}
+	err := r.KubeReadLatestInto(ctx, req.NamespacedName, cr)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			// resource wasn't found. just ignore these.
-			return ctrlrt.Result{}, nil
-		}
-		return ctrlrt.Result{}, err
+		return nil, fmt.Errorf("failed reading latest resource: %w", err)
 	}
-
-	ctx = ctrlreqlog.ToContext(ctx, c.Logger(), desired)
-
-	latest, err := c.reconcile(ctx, desired)
-	return c.handleReconcileError(ctx, desired, latest, err)
+	return &res{cr}, nil
 }
 
-// reconcile attempts to make the latest observed state of the resource match
-// the latest desired state.
+// ResourceSetLatest mutates the supplied [types.Resource] with the latest
+// observed state.
 //
-// It returns a copy of the resource that represents the latest observed state.
-func (c *controller) reconcile(
+// Any error returned from this function is considered a runtime error and will
+// cause the resource to contain a Stalled Condition with Status=True.
+func (r *Reconciler) ResourceSetLatest(
 	ctx context.Context,
-	desired types.Resource,
-) (types.Resource, error) {
-	if desired.IsBeingDeleted() {
-		return c.resourceDelete(ctx, desired)
-	}
-	latest, err := c.resourceSync(ctx, desired)
+	latest types.Resource, // mutated by this method
+) error {
+	var err error
+	log := ctrlreqlog.FromContext(ctx)
+	exit := log.Trace("resource.set.latest")
+	defer func() {
+		exit(err)
+	}()
+
+	tcc, err := r.CloudClientFor(ctx, latest)
 	if err != nil {
-		return latest, err
+		return fmt.Errorf("failed getting tcloud client: %w", err)
 	}
-	return latest, nil
+	_ = tcc
+
+	// "pop" the underlying *tcloudv1alpha1.Namespace from the [types.Resource]
+	// wrapper. This is a pointer so by modifying it, you mutate the supplied
+	// `latest` parameter.
+	ns := latest.(*res).cr
+	_ = ns
+
+	// TODO: call the Temporal Cloud API to fetch Namespace spec and status and
+	// mutate the supplied resource to set the spec and status fields
+	// accordingly.
+	//
+	// latestObserved, err := tcc.CloudService().GetNamespace(...)
+	// if err != nil {
+	//     return fmt.Errorf("failed getting tcloud namespace: %w", err)
+	// }
+	// ns.Spec.ProjectID = latestObserved.ProjectId
+	// ...
+
+	return err
 }
 
-// resourceSync ensures that the supplied Resource's backing Temporal Cloud
-// Namespace matches the supplied desired state.
+// ResourceSyncFunc synchronizes any managed resources to match the supplied
+// desired [types.Resource] state.
 //
-// It returns a copy of the resource that represents the latest observed state.
-func (c *controller) resourceSync(
+// Returns nil when the synchronization was successful, otherwise returns an
+// error derived from `kube-tempoal/pkg/controller/errors.ErrResourceSync`.
+//
+// `desired` should NEVER be mutated by this callback.
+// `latest` should NEVER be mutated by this callback.
+//
+// This method is only called when there was a difference detected between
+// the desired and latest [types.Resource].
+func (r *Reconciler) ResourceSync(
 	ctx context.Context,
 	desired types.Resource,
-) (types.Resource, error) {
+	latest types.Resource,
+) error {
 	var err error
 	log := ctrlreqlog.FromContext(ctx)
 	exit := log.Trace("resource.sync")
@@ -82,129 +145,45 @@ func (c *controller) resourceSync(
 		exit(err)
 	}()
 
-	var latest types.Resource // the newly created or mutated resource
+	tcc, err := r.CloudClientFor(ctx, desired)
+	if err != nil {
+		return fmt.Errorf("failed getting tcloud client: %w", err)
+	}
+	_ = tcc
 
-	// We clear the resource's Conditions collection at the start of each
-	// reconcile loop to ensure that the Status.Conditions always contains the
-	// freshest indication of current state.
-	condition.Clear(desired)
-	defer func() {
-		c.conditionsSync(ctx, latest, err)
-	}()
-	return latest, nil
+	// TODO: call the Temporal Cloud API to update Namespace desired
+	// configuration to match the desired resource.
+
+	return err
 }
 
-// resourceDelete ensures that the supplied Resource's backing Temporal Cluster
-// is destroyed along with all child dependent resources.
-//
-// Returns a copy of the resource with the latest state either right before
-// deletion OR after a failed attempted deletion.
-func (c *controller) resourceDelete(
+// ResourceDelete deletes any managed external resources for the supplied
+// [types.Resource]. Note that the Reconciler does NOT need to remove the
+// finalizer on the associated [client.Object]. The Controller handles that.
+// All the Reconciler needs to do is delete any owned resources or
+// externally-managed resources associated with the supplied [types.Resource].
+func (r *Reconciler) ResourceDelete(
 	ctx context.Context,
-	current types.Resource,
-) (types.Resource, error) {
+	desired types.Resource,
+) error {
 	var err error
 	log := ctrlreqlog.FromContext(ctx)
 	exit := log.Trace("resource.delete")
 	defer func() {
 		exit(err)
 	}()
-	return nil, nil
+
+	tcc, err := r.CloudClientFor(ctx, desired)
+	if err != nil {
+		return fmt.Errorf("failed getting tcloud client: %w", err)
+	}
+	_ = tcc
+
+	// TODO: call the Temporal Cloud API to delete the Namespace.
+
+	return err
 }
 
-// conditionsSync examines the supplied resource's collection of Condition
-// objects and ensures that appropriate Ready and Terminal Conditions are
-// present.
-func (c *controller) conditionsSync(
-	ctx context.Context,
-	res types.Resource,
-	reconcileErr error,
-) {
-	if lo.IsNil(res) {
-		return
-	}
-
-	var err error
-	log := ctrlreqlog.FromContext(ctx)
-	exit := log.Trace("conditions.sync")
-	defer func() {
-		exit(err)
-	}()
-
-	if errors.Is(reconcileErr, &ctrlerrors.TerminalError{}) {
-		// If we got a terminal error while reconciling the resource, we set
-		// its Stalled condition to True to indicate that another reconcile
-		// will not change the status of the resource without a change to its
-		// desired state.
-		condition.SetStalled(
-			res,
-			metav1.ConditionFalse,
-			"TerminalError",
-			fmt.Sprintf(
-				"reconciliation encountered a terminal error: %s",
-				reconcileErr.Error(),
-			),
-		)
-	} else {
-		condition.SetStalled(
-			res,
-			metav1.ConditionFalse,
-			"ReconcileSucceeded",
-			"reconcile succeeded",
-		)
-	}
-}
-
-// handleReconcileError will handle errors from reconcile handlers, which
-// respects runtime errors.
-//
-// If the `latest` parameter is not nil, this function will ALWAYS patch the
-// latest Status fields back to the Kubernetes API.
-func (c *controller) handleReconcileError(
-	ctx context.Context,
-	desired types.Resource,
-	latest types.Resource,
-	err error,
-) (ctrlrt.Result, error) {
-	if lo.IsNotNil(latest) {
-		// The reconciliation loop may have returned an error, but if latest is
-		// not nil, there may be some changes available in the CR's Status
-		// struct (example: Conditions), and we want to make sure we save those
-		// changes before proceeding.
-		//
-		// It is okay to patch status when resource is not present due to deletion
-		// because a NotFound error is thrown which will be ignored.
-		_ = c.patchResourceStatus(ctx, desired, latest)
-	}
-	if err == nil || errors.Is(err, &ctrlerrors.TerminalError{}) {
-		// We don't requeue on a terminal error...
-		return ctrlrt.Result{}, nil
-	}
-
-	var requeueNeededAfter *requeue.RequeueNeededAfter
-	if errors.As(err, &requeueNeededAfter) {
-		after := requeueNeededAfter.Duration()
-		return ctrlrt.Result{RequeueAfter: after}, nil
-	}
-
-	var requeueNeeded *requeue.RequeueNeeded
-	if errors.As(err, &requeueNeeded) {
-		return ctrlrt.Result{Requeue: true}, nil
-	}
-
-	return ctrlrt.Result{}, err
-}
-
-// patchResourceStatus patches the custom resource in the Kubernetes API to
-// match the supplied latest resource.
-func (c *controller) patchResourceStatus(
-	ctx context.Context,
-	desired types.Resource,
-	latest types.Resource,
-) error {
-	dobj := desired.DeepCopy().ClientObject()
-	lobj := latest.DeepCopy().ClientObject()
-	patch := client.MergeFrom(dobj)
-
-	return c.Client.Status().Patch(ctx, lobj, patch)
-}
+// compile-time check that Reconciler satisfies the [types.Reconciler]
+// contract.
+var _ types.Reconciler = (*Reconciler)(nil)

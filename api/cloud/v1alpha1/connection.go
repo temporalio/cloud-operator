@@ -1,8 +1,14 @@
 package v1alpha1
 
 import (
+	"crypto/md5"
+
 	tcorev1 "github.com/temporalio/kube-temporal/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+const (
+	DefaultConnectionHostPort = "saas-api.tmprl.cloud:443"
 )
 
 // ConnectionSpec describes the desired configuration of a Connection to a
@@ -29,6 +35,19 @@ type ConnectionSpec struct {
 	// Credentials contains desired configuration for the Temporal Cloud client
 	// credentials.
 	Credentials CredentialsConfig `json:"credentials"`
+}
+
+// Hash returns a deterministic MD5 hash of the ConnectionSpec's field
+// components.
+func (s ConnectionSpec) Hash() []byte {
+	out := md5.New()
+	out.Write([]byte{'|'})
+	out.Write([]byte(s.HostPort))
+	out.Write([]byte{'|'})
+	out.Write(s.TLS.Hash())
+	out.Write([]byte{'|'})
+	out.Write(s.Credentials.Hash())
+	return out.Sum(nil)
 }
 
 // ConnectionStatus defines the observed state of a Connection
