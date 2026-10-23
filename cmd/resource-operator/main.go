@@ -15,7 +15,7 @@ import (
 	ctrlrtlog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/temporalio/kube-temporal/pkg/controller/config"
-	cloudv1alpha1 "github.com/temporalio/resource-operator/api/cloud/v1alpha1"
+	tcloudv1alpha1 "github.com/temporalio/resource-operator/api/cloud/v1alpha1"
 	ctrlnamespace "github.com/temporalio/resource-operator/controller/namespace"
 	"github.com/temporalio/resource-operator/pkg/version"
 )
@@ -31,7 +31,7 @@ var (
 )
 
 func init() {
-	_ = cloudv1alpha1.AddToScheme(scheme)
+	_ = tcloudv1alpha1.AddToScheme(scheme)
 }
 
 func main() {
@@ -70,12 +70,13 @@ func main() {
 	rootLogger := slog.New(logr.ToSlogHandler(ctrlrtlog.Log))
 
 	setupLog.Info("initializing controller")
-	cc := ctrlnamespace.New(cfg, rootLogger)
+	c := ctrlnamespace.New(cfg, rootLogger)
 
-	if err = cc.BindManager(mgr); err != nil {
+	if err = c.BindManager(mgr); err != nil {
 		setupLog.Error(
 			err,
 			"failed binding controller to controller manager",
+			"controller", c.Name(),
 		)
 		os.Exit(1)
 	}

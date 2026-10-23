@@ -3,13 +3,9 @@ package namespace
 import (
 	"log/slog"
 
-	"github.com/temporalio/kube-temporal/pkg/controller/base"
+	"github.com/temporalio/kube-temporal/pkg/controller"
 	"github.com/temporalio/kube-temporal/pkg/controller/config"
-	"github.com/temporalio/kube-temporal/pkg/types"
-	ctrlrt "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
-
-	cloudv1alpha1 "github.com/temporalio/resource-operator/api/cloud/v1alpha1"
+	tcloudv1alpha1 "github.com/temporalio/resource-operator/api/cloud/v1alpha1"
 )
 
 // +kubebuilder:rbac:groups=cloud.temporal.io,resources=namespaces,verbs=get;list;watch;create;update;patch;delete
@@ -17,33 +13,36 @@ import (
 // +kubebuilder:rbac:groups=cloud.temporal.io,resources=namespaces/finalizers,verbs=update
 
 const (
-	controllerName = "namespace"
+	ControllerName = "namespace"
 )
 
-type NewOption func(*controller)
-
-// New returns a new [types.Controller] that handles [cloudv1alpha1.Namespace]
-// resources.
+// New returns a new [controller.Controller] that handles
+// [cloudv1alpha1.Namespace] resources.
 func New(
-	cfg *config.Config,
+	cfg config.Config,
 	logger *slog.Logger,
-) types.Controller {
-	return &controller{
-		Controller: base.New(cfg, logger),
-	}
+) *controller.Controller {
+	return controller.New(
+		ControllerName,
+		cfg,
+		NewReconciler(),
+		controller.WithLogger(logger),
+	)
 }
 
-type controller struct {
-	base.Controller
-}
-
-// BindManager binds the Controller to the supplied [ctrlrt.Manager].
-func (c *controller) BindManager(m ctrlrt.Manager) error {
-	c.Controller.Client = m.GetClient()
-	c.Controller.Reader = m.GetAPIReader()
-	builder := ctrlrt.NewControllerManagedBy(m).
-		Named(controllerName).
-		For(&cloudv1alpha1.Namespace{}).
-		WithEventFilter(predicate.GenerationChangedPredicate{})
-	return builder.Complete(c)
+// NewWithDefaultCloudConnectionSpec returns a new [controller.Controller] that
+// handles [tcloudv1alpha1.Namespace] resources and passes in a
+// [tcloudv1alpha1.ConnectionSpec] to instruct the reconciler how to connect to
+// a Temporal Cloud API endpoint.
+func NewWithDefaultCloudConnectionSpec(
+	cfg config.Config,
+	logger *slog.Logger,
+	spec tcloudv1alpha1.ConnectionSpec,
+) *controller.Controller {
+	return controller.New(
+		ControllerName,
+		cfg,
+		NewReconciler(WithDefaultCloudConnectionSpec(spec)),
+		controller.WithLogger(logger),
+	)
 }

@@ -1,4 +1,4 @@
-package connection
+package loader
 
 import (
 	"context"
@@ -41,9 +41,9 @@ func (l Loader) KubeNamespace() string {
 	return l.kns
 }
 
-// TemporalCloudClientOptions returns the Temporal Cloud SDK client Options to
-// use when dialing the Temporal Cloud client.
-func (l *Loader) TemporalCloudClientOptions() (*tcclient.Options, error) {
+// ClientOptions returns the Temporal Cloud SDK client Options to use when
+// dialing the Temporal Cloud client.
+func (l *Loader) ClientOptions() (*tcclient.Options, error) {
 	if l.tccOpts != nil {
 		return l.tccOpts, nil
 	}
@@ -51,7 +51,7 @@ func (l *Loader) TemporalCloudClientOptions() (*tcclient.Options, error) {
 		return nil, fmt.Errorf("ConnectionSpec required")
 	}
 	return sync.OnceValues(func() (*tcclient.Options, error) {
-		tccOpts, err := l.cloudClientOptionsFromConnectionSpec()
+		tccOpts, err := l.clientOptionsFromConnectionSpec()
 		if err != nil {
 			return nil, err
 		}
@@ -60,12 +60,12 @@ func (l *Loader) TemporalCloudClientOptions() (*tcclient.Options, error) {
 	})()
 }
 
-// NewLoaderOption allows modifying the Loader returned from NewLoader.
-type NewLoaderOption func(*Loader)
+// NewOption allows modifying the Loader returned from New.
+type NewOption func(*Loader)
 
 // WithKubeClient allows the caller to supply a Kubernetes client to use if
 // looking up credentials in Kubernetes Secrets or ConfigMaps.
-func WithKubeClient(kc kclient.Client) NewLoaderOption {
+func WithKubeClient(kc kclient.Client) NewOption {
 	return func(l *Loader) {
 		l.kc = kc
 	}
@@ -73,16 +73,16 @@ func WithKubeClient(kc kclient.Client) NewLoaderOption {
 
 // WithKubeNamespace allows the caller to supply a Kubernetes Namespace to use
 // if looking up credentials in Kubernetes Secrets or ConfigMaps.
-func WithKubeNamespace(ns string) NewLoaderOption {
+func WithKubeNamespace(ns string) NewOption {
 	return func(l *Loader) {
 		l.kns = ns
 	}
 }
 
-// WithTemporalCloudClientOptions allows the caller to override the Options
-// supplied to the Temporal Cloud sdkclient.New function when constructing the
-// Temporal Cloud Client.
-func WithTemporalCloudClientOptions(tccOpts tcclient.Options) NewLoaderOption {
+// WithClientOptions allows the caller to override the Options supplied to the
+// Temporal Cloud sdkclient.New function when constructing the Temporal Cloud
+// Client.
+func WithClientOptions(tccOpts tcclient.Options) NewOption {
 	return func(l *Loader) {
 		l.tccOpts = &tccOpts
 	}
@@ -91,15 +91,15 @@ func WithTemporalCloudClientOptions(tccOpts tcclient.Options) NewLoaderOption {
 // WithConnectionSpec sets the Loader's ConnectionSpec which informs the Loader
 // where to find various credentials and connectivity information for the
 // Temporal sdkclient.Client.
-func WithConnectionSpec(spec tcloudv1alpha1.ConnectionSpec) NewLoaderOption {
+func WithConnectionSpec(spec tcloudv1alpha1.ConnectionSpec) NewOption {
 	return func(l *Loader) {
 		l.connSpec = &spec
 	}
 }
 
-// NewLoader returns a Loader that knows how to load a Connection from a
+// New returns a Loader that knows how to load a Connection from a
 // variety of sources, including a ConnectionSpec.
-func NewLoader(opts ...NewLoaderOption) Loader {
+func New(opts ...NewOption) Loader {
 	l := Loader{}
 	for _, opt := range opts {
 		opt(&l)
@@ -108,9 +108,9 @@ func NewLoader(opts ...NewLoaderOption) Loader {
 	return l
 }
 
-// cloudClientOptionsFromConnectionSpec returns Temporal Cloud
+// clientOptionsFromConnectionSpec returns Temporal Cloud
 // sdkclient.Options constructed from the Loader's ConnectionSpec.
-func (l *Loader) cloudClientOptionsFromConnectionSpec() (
+func (l *Loader) clientOptionsFromConnectionSpec() (
 	*tcclient.Options, error,
 ) {
 	spec := l.connSpec
@@ -118,7 +118,7 @@ func (l *Loader) cloudClientOptionsFromConnectionSpec() (
 		return nil, fmt.Errorf("ConnectionSpec required")
 	}
 
-	tccOpts, err := l.cloudClientOptionsFromAPIKeyCredentialsConfig(
+	tccOpts, err := l.clientOptionsFromAPIKeyCredentialsConfig(
 		spec.Credentials.APIKey,
 	)
 	if err != nil {
@@ -159,10 +159,9 @@ func (l *Loader) cloudClientOptionsFromConnectionSpec() (
 	return tccOpts, nil
 }
 
-// cloudClientOptionsFromAPIKeyCredentialsConfig returns the configured
-// Temporal Cloud client.Options struct from the supplied
-// APIKeyCredentialsConfig.
-func (l Loader) cloudClientOptionsFromAPIKeyCredentialsConfig(
+// clientOptionsFromAPIKeyCredentialsConfig returns the configured Temporal
+// Cloud client.Options struct from the supplied APIKeyCredentialsConfig.
+func (l Loader) clientOptionsFromAPIKeyCredentialsConfig(
 	cfg tcorev1.APIKeyCredentialsConfig,
 ) (*tcclient.Options, error) {
 	switch {

@@ -5,7 +5,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/temporalio/resource-operator/pkg/temporal/cloud/connection"
-	"github.com/temporalio/resource-operator/pkg/version"
+	"github.com/temporalio/resource-operator/pkg/temporal/cloud/connection/loader"
+	"github.com/temporalio/resource-operator/pkg/testutil"
 	tcclient "go.temporal.io/cloud-sdk/cloudclient"
 )
 
@@ -13,57 +14,51 @@ const (
 	testCloudAPIKey = "test-api-key"
 )
 
-func newTCCOptions() *tcclient.Options {
-	return &tcclient.Options{
-		UserAgent: version.UserAgent(),
-	}
-}
-
 func TestNew(t *testing.T) {
-	tccOpts := newTCCOptions()
+	tccOpts := testutil.NewCloudClientOptions()
 	tccOpts.APIKey = testCloudAPIKey
 	tcc, err := tcclient.New(*tccOpts)
 	require.Nil(t, err)
 
-	loader := connection.NewLoader(
-		connection.WithTemporalCloudClientOptions(*tccOpts),
+	load := loader.New(
+		loader.WithClientOptions(*tccOpts),
 	)
 
 	cases := []struct {
 		name      string
 		args      []connection.NewOption
-		expTCC    *tcclient.Client
-		expLoader *connection.Loader
+		expClient *tcclient.Client
+		expLoader *loader.Loader
 		expErr    string
 	}{
 		{
 			name:   "fail if no loader or tcclient provided",
 			args:   []connection.NewOption{},
-			expErr: "either use WithLoader or WithTemporalCloudClient",
+			expErr: "either use WithLoader or WithClient",
 		},
 		{
 			name: "fail if both loader and tcclient provided",
 			args: []connection.NewOption{
-				connection.WithTemporalCloudClient(tcc),
-				connection.WithLoader(loader),
+				connection.WithClient(tcc),
+				connection.WithLoader(load),
 			},
-			expErr: "either use WithLoader or WithTemporalCloudClient",
+			expErr: "either use WithLoader or WithClient",
 		},
 		{
 			name: "temporal cloud client override",
 			args: []connection.NewOption{
-				connection.WithTemporalCloudClient(tcc),
+				connection.WithClient(tcc),
 			},
-			expTCC:    tcc,
+			expClient: tcc,
 			expLoader: nil,
 		},
 		{
 			name: "loader",
 			args: []connection.NewOption{
-				connection.WithLoader(loader),
+				connection.WithLoader(load),
 			},
-			expTCC:    nil,
-			expLoader: &loader,
+			expClient: nil,
+			expLoader: &load,
 		},
 	}
 	for _, tc := range cases {
@@ -75,22 +70,22 @@ func TestNew(t *testing.T) {
 				return
 			}
 			require.NotNil(got)
-			if tc.expTCC != nil {
+			if tc.expClient != nil {
 				gotTCC, err := got.Client()
 				require.Nil(err)
 				require.NotNil(gotTCC)
-				require.Equal(tc.expTCC, gotTCC)
+				require.Equal(tc.expClient, gotTCC)
 			}
 			gotLoader := got.Loader()
 			if tc.expLoader == nil {
 				require.Nil(gotLoader)
 			} else {
 				require.NotNil(gotLoader)
-				gotTCCOpts, err := gotLoader.TemporalCloudClientOptions()
+				gotTCCOpts, err := gotLoader.ClientOptions()
 				require.Nil(err)
-				expTCCOpts, err := tc.expLoader.TemporalCloudClientOptions()
+				expClientOpts, err := tc.expLoader.ClientOptions()
 				require.Nil(err)
-				require.EqualExportedValues(expTCCOpts, gotTCCOpts)
+				require.EqualExportedValues(expClientOpts, gotTCCOpts)
 			}
 		})
 	}

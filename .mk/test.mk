@@ -30,7 +30,7 @@ test: test-unit ## Run all tests.
 
 .PHONY: test-unit
 test-unit: ## Run all unit tests.
-	@go test -v ./...
+	@go test -v ./... -coverprofile=cover.out
 
 .PHONY: test-cluster-delete
 test-cluster-delete: $(KIND) ## Delete the testing cluster.

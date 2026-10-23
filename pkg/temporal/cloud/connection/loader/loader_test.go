@@ -1,4 +1,4 @@
-package connection_test
+package loader_test
 
 import (
 	"crypto/tls"
@@ -10,9 +10,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 	tcorev1 "github.com/temporalio/kube-temporal/api/core/v1"
-	"github.com/temporalio/kube-temporal/pkg/testutil"
+	kttestutil "github.com/temporalio/kube-temporal/pkg/testutil"
 	tcloudv1alpha1 "github.com/temporalio/resource-operator/api/cloud/v1alpha1"
-	"github.com/temporalio/resource-operator/pkg/temporal/cloud/connection"
+	"github.com/temporalio/resource-operator/pkg/temporal/cloud/connection/loader"
+	"github.com/temporalio/resource-operator/pkg/testutil"
 	tcclient "go.temporal.io/cloud-sdk/cloudclient"
 	kcorev1 "k8s.io/api/core/v1"
 	kcrfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -30,29 +31,29 @@ var (
 )
 
 var validCAKeyPair = sync.OnceValues(
-	func() (*testutil.TLSKeyPair, error) {
-		return testutil.TLSNewCAKeyPair(tlsCAName)
+	func() (*kttestutil.TLSKeyPair, error) {
+		return kttestutil.TLSNewCAKeyPair(tlsCAName)
 	},
 )
 
 func TestLoader_ClientOptions(t *testing.T) {
-	tccOpts := newTCCOptions()
+	tccOpts := testutil.NewCloudClientOptions()
 
 	cases := []struct {
 		name   string
-		args   []connection.NewLoaderOption
+		args   []loader.NewOption
 		exp    *tcclient.Options
 		expErr string
 	}{
 		{
 			name:   "fail if no connection spec or tcclient opts",
-			args:   []connection.NewLoaderOption{},
+			args:   []loader.NewOption{},
 			expErr: "ConnectionSpec required",
 		},
 		{
 			name: "tcclient opts override provided",
-			args: []connection.NewLoaderOption{
-				connection.WithTemporalCloudClientOptions(*tccOpts),
+			args: []loader.NewOption{
+				loader.WithClientOptions(*tccOpts),
 			},
 			exp: tccOpts,
 		},
@@ -60,8 +61,8 @@ func TestLoader_ClientOptions(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(tt *testing.T) {
 			require := require.New(tt)
-			loader := connection.NewLoader(tc.args...)
-			got, err := loader.TemporalCloudClientOptions()
+			loader := loader.New(tc.args...)
+			got, err := loader.ClientOptions()
 			if tc.expErr != "" {
 				require.ErrorContains(err, tc.expErr)
 				return
@@ -130,14 +131,14 @@ func TestLoader_ClientOptions_ControllerSpec_APIKeyCredentials(t *testing.T) {
 
 	cases := []struct {
 		name   string
-		args   []connection.NewLoaderOption
+		args   []loader.NewOption
 		exp    *tcclient.Options
 		expErr string
 	}{
 		{
 			name: "fail if no api key secret ref or path",
-			args: []connection.NewLoaderOption{
-				connection.WithConnectionSpec(
+			args: []loader.NewOption{
+				loader.WithConnectionSpec(
 					tcloudv1alpha1.ConnectionSpec{},
 				),
 			},
@@ -145,8 +146,8 @@ func TestLoader_ClientOptions_ControllerSpec_APIKeyCredentials(t *testing.T) {
 		},
 		{
 			name: "fail if api key secret no kube client",
-			args: []connection.NewLoaderOption{
-				connection.WithConnectionSpec(
+			args: []loader.NewOption{
+				loader.WithConnectionSpec(
 					tcloudv1alpha1.ConnectionSpec{
 						Credentials: tcloudv1alpha1.CredentialsConfig{
 							APIKey: tcorev1.APIKeyCredentialsConfig{
@@ -165,11 +166,11 @@ func TestLoader_ClientOptions_ControllerSpec_APIKeyCredentials(t *testing.T) {
 		},
 		{
 			name: "fail if api key secret no such secret",
-			args: []connection.NewLoaderOption{
-				connection.WithKubeClient(
+			args: []loader.NewOption{
+				loader.WithKubeClient(
 					kcrfake.NewFakeClient(),
 				),
-				connection.WithConnectionSpec(
+				loader.WithConnectionSpec(
 					tcloudv1alpha1.ConnectionSpec{
 						Credentials: tcloudv1alpha1.CredentialsConfig{
 							APIKey: tcorev1.APIKeyCredentialsConfig{
@@ -188,15 +189,15 @@ func TestLoader_ClientOptions_ControllerSpec_APIKeyCredentials(t *testing.T) {
 		},
 		{
 			name: "fail if api key secret no such secret in namespace",
-			args: []connection.NewLoaderOption{
-				connection.WithKubeNamespace(kubeNamespace),
-				connection.WithKubeClient(
+			args: []loader.NewOption{
+				loader.WithKubeNamespace(kubeNamespace),
+				loader.WithKubeClient(
 					// This is the non-namespaced secret, which should not
 					// match the lookup with the kubeNamespace override from
 					// the loader options.
 					kcrfake.NewFakeClient(apiKeySecret),
 				),
-				connection.WithConnectionSpec(
+				loader.WithConnectionSpec(
 					tcloudv1alpha1.ConnectionSpec{
 						Credentials: tcloudv1alpha1.CredentialsConfig{
 							APIKey: tcorev1.APIKeyCredentialsConfig{
@@ -215,11 +216,11 @@ func TestLoader_ClientOptions_ControllerSpec_APIKeyCredentials(t *testing.T) {
 		},
 		{
 			name: "api key secret",
-			args: []connection.NewLoaderOption{
-				connection.WithKubeClient(
+			args: []loader.NewOption{
+				loader.WithKubeClient(
 					kcrfake.NewFakeClient(apiKeySecret),
 				),
-				connection.WithConnectionSpec(
+				loader.WithConnectionSpec(
 					tcloudv1alpha1.ConnectionSpec{
 						Credentials: tcloudv1alpha1.CredentialsConfig{
 							APIKey: tcorev1.APIKeyCredentialsConfig{
@@ -235,19 +236,19 @@ func TestLoader_ClientOptions_ControllerSpec_APIKeyCredentials(t *testing.T) {
 				),
 			},
 			exp: func() *tcclient.Options {
-				tcco := newTCCOptions()
+				tcco := testutil.NewCloudClientOptions()
 				tcco.APIKey = apiKeySecretDataValue
 				return tcco
 			}(),
 		},
 		{
 			name: "api key secret in namespace",
-			args: []connection.NewLoaderOption{
-				connection.WithKubeNamespace(kubeNamespace),
-				connection.WithKubeClient(
+			args: []loader.NewOption{
+				loader.WithKubeNamespace(kubeNamespace),
+				loader.WithKubeClient(
 					kcrfake.NewFakeClient(apiKeySecretWithNamespace),
 				),
-				connection.WithConnectionSpec(
+				loader.WithConnectionSpec(
 					tcloudv1alpha1.ConnectionSpec{
 						Credentials: tcloudv1alpha1.CredentialsConfig{
 							APIKey: tcorev1.APIKeyCredentialsConfig{
@@ -263,18 +264,18 @@ func TestLoader_ClientOptions_ControllerSpec_APIKeyCredentials(t *testing.T) {
 				),
 			},
 			exp: func() *tcclient.Options {
-				tcco := newTCCOptions()
+				tcco := testutil.NewCloudClientOptions()
 				tcco.APIKey = apiKeySecretDataValue
 				return tcco
 			}(),
 		},
 		{
 			name: "api key secret with custom host port",
-			args: []connection.NewLoaderOption{
-				connection.WithKubeClient(
+			args: []loader.NewOption{
+				loader.WithKubeClient(
 					kcrfake.NewFakeClient(apiKeySecret),
 				),
-				connection.WithConnectionSpec(
+				loader.WithConnectionSpec(
 					tcloudv1alpha1.ConnectionSpec{
 						HostPort: customHostPort,
 						Credentials: tcloudv1alpha1.CredentialsConfig{
@@ -291,7 +292,7 @@ func TestLoader_ClientOptions_ControllerSpec_APIKeyCredentials(t *testing.T) {
 				),
 			},
 			exp: func() *tcclient.Options {
-				tcco := newTCCOptions()
+				tcco := testutil.NewCloudClientOptions()
 				tcco.HostPort = customHostPort
 				tcco.APIKey = apiKeySecretDataValue
 				return tcco
@@ -299,11 +300,11 @@ func TestLoader_ClientOptions_ControllerSpec_APIKeyCredentials(t *testing.T) {
 		},
 		{
 			name: "api key secret with tls server name",
-			args: []connection.NewLoaderOption{
-				connection.WithKubeClient(
+			args: []loader.NewOption{
+				loader.WithKubeClient(
 					kcrfake.NewFakeClient(apiKeySecret),
 				),
-				connection.WithConnectionSpec(
+				loader.WithConnectionSpec(
 					tcloudv1alpha1.ConnectionSpec{
 						TLS: tcorev1.ServerTLSConfig{
 							ServerName: tlsServerName,
@@ -322,7 +323,7 @@ func TestLoader_ClientOptions_ControllerSpec_APIKeyCredentials(t *testing.T) {
 				),
 			},
 			exp: func() *tcclient.Options {
-				tcco := newTCCOptions()
+				tcco := testutil.NewCloudClientOptions()
 				tcco.TLSConfig = &tls.Config{
 					ServerName: tlsServerName,
 				}
@@ -332,8 +333,8 @@ func TestLoader_ClientOptions_ControllerSpec_APIKeyCredentials(t *testing.T) {
 		},
 		{
 			name: "fail if api key path not found",
-			args: []connection.NewLoaderOption{
-				connection.WithConnectionSpec(
+			args: []loader.NewOption{
+				loader.WithConnectionSpec(
 					tcloudv1alpha1.ConnectionSpec{
 						Credentials: tcloudv1alpha1.CredentialsConfig{
 							APIKey: tcorev1.APIKeyCredentialsConfig{
@@ -347,8 +348,8 @@ func TestLoader_ClientOptions_ControllerSpec_APIKeyCredentials(t *testing.T) {
 		},
 		{
 			name: "api key path",
-			args: []connection.NewLoaderOption{
-				connection.WithConnectionSpec(
+			args: []loader.NewOption{
+				loader.WithConnectionSpec(
 					tcloudv1alpha1.ConnectionSpec{
 						Credentials: tcloudv1alpha1.CredentialsConfig{
 							APIKey: tcorev1.APIKeyCredentialsConfig{
@@ -359,15 +360,15 @@ func TestLoader_ClientOptions_ControllerSpec_APIKeyCredentials(t *testing.T) {
 				),
 			},
 			exp: func() *tcclient.Options {
-				tcco := newTCCOptions()
+				tcco := testutil.NewCloudClientOptions()
 				tcco.APIKey = apiKeySecretDataValue
 				return tcco
 			}(),
 		},
 		{
 			name: "api key path with tls server name",
-			args: []connection.NewLoaderOption{
-				connection.WithConnectionSpec(
+			args: []loader.NewOption{
+				loader.WithConnectionSpec(
 					tcloudv1alpha1.ConnectionSpec{
 						TLS: tcorev1.ServerTLSConfig{
 							ServerName: tlsServerName,
@@ -381,7 +382,7 @@ func TestLoader_ClientOptions_ControllerSpec_APIKeyCredentials(t *testing.T) {
 				),
 			},
 			exp: func() *tcclient.Options {
-				tcco := newTCCOptions()
+				tcco := testutil.NewCloudClientOptions()
 				tcco.APIKey = apiKeySecretDataValue
 				tcco.TLSConfig = &tls.Config{
 					ServerName: tlsServerName,
@@ -391,11 +392,11 @@ func TestLoader_ClientOptions_ControllerSpec_APIKeyCredentials(t *testing.T) {
 		},
 		{
 			name: "fail tls CA cert secret no such secret",
-			args: []connection.NewLoaderOption{
-				connection.WithKubeClient(
+			args: []loader.NewOption{
+				loader.WithKubeClient(
 					kcrfake.NewFakeClient(),
 				),
-				connection.WithConnectionSpec(
+				loader.WithConnectionSpec(
 					tcloudv1alpha1.ConnectionSpec{
 						Credentials: tcloudv1alpha1.CredentialsConfig{
 							APIKey: tcorev1.APIKeyCredentialsConfig{
@@ -419,11 +420,11 @@ func TestLoader_ClientOptions_ControllerSpec_APIKeyCredentials(t *testing.T) {
 		},
 		{
 			name: "fail tls CA cert secret invalid cert",
-			args: []connection.NewLoaderOption{
-				connection.WithKubeClient(
+			args: []loader.NewOption{
+				loader.WithKubeClient(
 					kcrfake.NewFakeClient(tlsCACertInvalidSecret),
 				),
-				connection.WithConnectionSpec(
+				loader.WithConnectionSpec(
 					tcloudv1alpha1.ConnectionSpec{
 						Credentials: tcloudv1alpha1.CredentialsConfig{
 							APIKey: tcorev1.APIKeyCredentialsConfig{
@@ -447,11 +448,11 @@ func TestLoader_ClientOptions_ControllerSpec_APIKeyCredentials(t *testing.T) {
 		},
 		{
 			name: "api key with tls CA cert opaque secret type",
-			args: []connection.NewLoaderOption{
-				connection.WithKubeClient(
+			args: []loader.NewOption{
+				loader.WithKubeClient(
 					kcrfake.NewFakeClient(tlsCACertOpaqueSecret),
 				),
-				connection.WithConnectionSpec(
+				loader.WithConnectionSpec(
 					tcloudv1alpha1.ConnectionSpec{
 						Credentials: tcloudv1alpha1.CredentialsConfig{
 							APIKey: tcorev1.APIKeyCredentialsConfig{
@@ -472,7 +473,7 @@ func TestLoader_ClientOptions_ControllerSpec_APIKeyCredentials(t *testing.T) {
 				),
 			},
 			exp: func() *tcclient.Options {
-				tcco := newTCCOptions()
+				tcco := testutil.NewCloudClientOptions()
 				tcco.APIKey = apiKeySecretDataValue
 				tcco.TLSConfig = &tls.Config{
 					RootCAs: poolWithValidCACert,
@@ -482,11 +483,11 @@ func TestLoader_ClientOptions_ControllerSpec_APIKeyCredentials(t *testing.T) {
 		},
 		{
 			name: "api key with tls CA cert tls secret tpe",
-			args: []connection.NewLoaderOption{
-				connection.WithKubeClient(
+			args: []loader.NewOption{
+				loader.WithKubeClient(
 					kcrfake.NewFakeClient(tlsCACertTLSSecret),
 				),
-				connection.WithConnectionSpec(
+				loader.WithConnectionSpec(
 					tcloudv1alpha1.ConnectionSpec{
 						Credentials: tcloudv1alpha1.CredentialsConfig{
 							APIKey: tcorev1.APIKeyCredentialsConfig{
@@ -511,7 +512,7 @@ func TestLoader_ClientOptions_ControllerSpec_APIKeyCredentials(t *testing.T) {
 				),
 			},
 			exp: func() *tcclient.Options {
-				tcco := newTCCOptions()
+				tcco := testutil.NewCloudClientOptions()
 				tcco.APIKey = apiKeySecretDataValue
 				tcco.TLSConfig = &tls.Config{
 					RootCAs: poolWithValidCACert,
@@ -523,8 +524,8 @@ func TestLoader_ClientOptions_ControllerSpec_APIKeyCredentials(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(tt *testing.T) {
 			require := require.New(tt)
-			loader := connection.NewLoader(tc.args...)
-			got, err := loader.TemporalCloudClientOptions()
+			loader := loader.New(tc.args...)
+			got, err := loader.ClientOptions()
 			if tc.expErr != "" {
 				require.ErrorContains(err, tc.expErr)
 				return
