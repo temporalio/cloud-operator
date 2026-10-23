@@ -1,20 +1,20 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: temporal-resource-operator
+  name: temporal-cloud-operator
 spec:
   selector:
     matchLabels:
       control-plane: controller-manager
-      app.kubernetes.io/name: temporal-resource-operator
+      app.kubernetes.io/name: temporal-cloud-operator
   replicas: 1
   template:
     metadata:
       annotations:
-        kubectl.kubernetes.io/default-container: resource-operator
+        kubectl.kubernetes.io/default-container: cloud-operator
       labels:
         control-plane: controller-manager
-        app.kubernetes.io/name: temporal-resource-operator
+        app.kubernetes.io/name: temporal-cloud-operator
     spec:
       # TODO(user): Uncomment the following code to configure the nodeAffinity
       # expression according to the platforms which are supported by your
@@ -50,13 +50,13 @@ spec:
           type: RuntimeDefault
       containers:
       - command:
-        - /bin/resource-operator
+        - /bin/cloud-operator
         args:
         - --logging-format=json
         - --logging-level=info
         - --leader-election-enabled=false
-        image: temporalio/resource-operator:latest
-        name: resource-operator
+        image: temporalio/cloud-operator:latest
+        name: cloud-operator
         ports: []
         securityContext:
           readOnlyRootFilesystem: true
@@ -85,5 +85,5 @@ spec:
             memory: 64Mi
         volumeMounts: []
       volumes: []
-      serviceAccountName: temporal-resource-operator
+      serviceAccountName: temporal-cloud-operator
       terminationGracePeriodSeconds: 10

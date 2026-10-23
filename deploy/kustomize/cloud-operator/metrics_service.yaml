@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: temporal-resource-operator-metrics
+  name: temporal-cloud-operator-metrics
 spec:
   ports:
   - name: http
@@ -10,4 +10,4 @@ spec:
     targetPort: 8080
   type: ClusterIP
   selector:
-    app.kubernetes.io/name: temporal-resource-operator
+    app.kubernetes.io/name: temporal-cloud-operator

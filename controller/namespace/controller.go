@@ -5,7 +5,7 @@ import (
 
 	"github.com/temporalio/kube-temporal/pkg/controller"
 	"github.com/temporalio/kube-temporal/pkg/controller/config"
-	tcloudv1alpha1 "github.com/temporalio/resource-operator/api/cloud/v1alpha1"
+	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 )
 
 // +kubebuilder:rbac:groups=cloud.temporal.io,resources=namespaces,verbs=get;list;watch;create;update;patch;delete

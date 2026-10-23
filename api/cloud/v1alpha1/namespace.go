@@ -5,7 +5,7 @@ import (
 
 	tmprlcorev1 "github.com/temporalio/kube-temporal/api/core/v1"
 
-	cloudcommon "github.com/temporalio/resource-operator/api/cloud/common"
+	cloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
 )
 
 // Namespace represents an instance of a Temporal Cloud Namespace.

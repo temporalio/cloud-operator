@@ -4,9 +4,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/temporalio/resource-operator/pkg/temporal/cloud/connection"
-	"github.com/temporalio/resource-operator/pkg/temporal/cloud/connection/loader"
-	"github.com/temporalio/resource-operator/pkg/testutil"
+	"github.com/temporalio/cloud-operator/pkg/temporal/cloud/connection"
+	"github.com/temporalio/cloud-operator/pkg/temporal/cloud/connection/loader"
+	"github.com/temporalio/cloud-operator/pkg/testutil"
 	tcclient "go.temporal.io/cloud-sdk/cloudclient"
 )
 

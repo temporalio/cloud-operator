@@ -14,8 +14,8 @@ import (
 	ktypes "k8s.io/apimachinery/pkg/types"
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	tcloudv1alpha1 "github.com/temporalio/resource-operator/api/cloud/v1alpha1"
-	"github.com/temporalio/resource-operator/pkg/version"
+	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
+	"github.com/temporalio/cloud-operator/pkg/version"
 )
 
 // Loader can load a Temporal Cloud sdkclient.Client from a variety of sources,

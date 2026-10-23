@@ -2,14 +2,14 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   labels:
-    app.kubernetes.io/name: temporal-resource-operator
+    app.kubernetes.io/name: temporal-cloud-operator
     app.kubernetes.io/managed-by: kustomize
-  name: temporal-resource-operator
+  name: temporal-cloud-operator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: temporal-resource-operator
+  name: temporal-cloud-operator
 subjects:
 - kind: ServiceAccount
-  name: temporal-resource-operator
-  namespace: temporal-resource-operator
+  name: temporal-cloud-operator
+  namespace: temporal-cloud-operator

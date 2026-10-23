@@ -5,7 +5,7 @@ import (
 
 	tcclient "go.temporal.io/cloud-sdk/cloudclient"
 
-	"github.com/temporalio/resource-operator/pkg/temporal/cloud/connection/loader"
+	"github.com/temporalio/cloud-operator/pkg/temporal/cloud/connection/loader"
 )
 
 // Connection wraps a Temporal client struct with an ability to load the client

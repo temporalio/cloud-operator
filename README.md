@@ -1,4 +1,4 @@
-This repository contains the Temporal Resource Operator: a Kubernetes
+This repository contains the Temporal Cloud Operator: a Kubernetes
 [Operator][k8s-operator] that manages the lifecycle of one or more [Temporal
 Cloud][tcloud] resources.
 
@@ -7,7 +7,7 @@ Cloud][tcloud] resources.
 
 # How It Works
 
-After installing the Temporal Resource Operator (TCO), a user can create, modify
+After installing the Temporal Cloud Operator (TCO), a user can create, modify
 or delete Temporal Cloud resources using the `kubectl` CLI.
 
 For example, to create a new Temporal Cloud Namespace called
@@ -29,10 +29,10 @@ spec:
 EOF
 ```
 
-TRO watches the Kubernetes API for [Custom Resources][cr] (CRs) that represent
-Temporal Cloud resources and performs all the necessary actions to managed the
-lifecycle of those Temporal Cloud resources associated with the Custom
-Resource.
+Temporal Cloud Operator watches the Kubernetes API for [Custom Resources][cr]
+(CRs) that represent Temporal Cloud resources and performs all the necessary
+actions to managed the lifecycle of those Temporal Cloud resources associated
+with the Custom Resource.
 
 If you are familiar with projects like [Crossplane][crossplane] or [AWS
 Controllers for Kubernetes][ack] (ACK), this is the same concept applied to
@@ -46,14 +46,14 @@ Temporal Cloud resources.
 
 ## Kustomize
 
-The recommended way to install Temporal Resource Operator is to use Kustomize.
+The recommended way to install Temporal Cloud Operator is to use Kustomize.
 
-The following will install the latest Temporal Resource Operator into your
-Kubernetes Cluster in the `temporal-resource-operator` Kubernetes Namespace:
+The following will install the latest Temporal Cloud Operator into your
+Kubernetes Cluster in the `temporal-cloud-operator` Kubernetes Namespace:
 
 ```bash
-$ export TRO_TAG=main
-$ kubectl apply -n temporal-resource-operator -k "https://github.com/temporalio/resource-operator/deploy/kustomize?ref=$TRO_TAG"
+$ export TCO_TAG=main
+$ kubectl apply -n temporal-cloud-operator -k "https://github.com/temporalio/cloud-operator/deploy/kustomize?ref=$TCO_TAG"
 ```
 
 ## Helm
@@ -143,7 +143,7 @@ Will generate all Go code and Kubernetes deployment manifests.
 
 This repository does *not* use Ginkgo or the upstream Kubernetes
 controller-runtime `envtest` package for testing the binaries and configuration
-artifacts for Temporal Resource Operator.
+artifacts for Temporal Cloud Operator.
 
 ### Test environment
 
@@ -167,7 +167,7 @@ Will tear down the KinD cluster for local testing.
 make test-cluster-load-image
 ```
 
-Will build the Temporal Resource Operator container image with your local
+Will build the Temporal Cloud Operator container image with your local
 changes and load the container image into the KinD cluster's Docker registry.
 
 ```
@@ -175,14 +175,14 @@ make test-cluster-reset
 ```
 
 Can be used to delete any existing test cluster environment, create a new one,
-build the Temporal Resource Operator container image and load it into the KinD
+build the Temporal Cloud Operator container image and load it into the KinD
 cluster's Docker registry.
 
 ```
 make test-deploy
 ```
 
-Will install the Temporal Resource Operator running your local code along with
+Will install the Temporal Cloud Operator running your local code along with
 all of the CRDs, RBAC resources and related manifests in the `deploy/kustomize`
 directory.
 
@@ -190,7 +190,7 @@ directory.
 make test-undeploy
 ```
 
-Will remove all CRDs, RBAC roles and Temporal Resource Operator deployment
+Will remove all CRDs, RBAC roles and Temporal Cloud Operator deployment
 resources from the test cluster environment.
 
 [kind]: https://kind.sigs.k8s.io/
@@ -212,7 +212,7 @@ make temporal-cloud-cli
 bin/temporal-cloud login
 bin/temporal-cloud whoami -o json | jq -r .user.spec.access.accountAccess.role
 mkdir -p ~/.config/temporalio
-export TRO_SA_NAME=resource-operator-e2e
+export TCO_SA_NAME=cloud-operator-e2e
 ```
 
 #### 2a. Owner or Admin
@@ -222,29 +222,29 @@ role lets it create namespaces and makes it Admin only on the namespaces it
 creates:
 
 ```
-bin/temporal-cloud service-account create --name "$TRO_SA_NAME" \
+bin/temporal-cloud service-account create --name "$TCO_SA_NAME" \
   --account-role developer \
-  --description "e2e tests for github.com/temporalio/resource-operator"
+  --description "e2e tests for github.com/temporalio/cloud-operator"
 ```
 
 Then create your key and save it:
 
 ```
-TRO_SA_ID=$(bin/temporal-cloud service-account list -o json |
-  jq -er --arg name "$TRO_SA_NAME" '.ServiceAccounts[] | select(.spec.name == $name) | .id')
+TCO_SA_ID=$(bin/temporal-cloud service-account list -o json |
+  jq -er --arg name "$TCO_SA_NAME" '.ServiceAccounts[] | select(.spec.name == $name) | .id')
 
 (umask 077; bin/temporal-cloud apikey create-for-service-account \
-  --service-account-id "$TRO_SA_ID" \
-  --display-name "$TRO_SA_NAME-$USER" --expiry-duration 30d \
-  -o json | jq -er .token > ~/.config/temporalio/resource-operator-e2e-api-key)
+  --service-account-id "$TCO_SA_ID" \
+  --display-name "$TCO_SA_NAME-$USER" --expiry-duration 30d \
+  -o json | jq -er .token > ~/.config/temporalio/cloud-operator-e2e-api-key)
 ```
 
 #### 2b. Developer
 
 ```
 (umask 077; bin/temporal-cloud apikey create-for-me \
-  --display-name "$TRO_SA_NAME-$USER" --expiry-duration 30d \
-  -o json | jq -er .token > ~/.config/temporalio/resource-operator-e2e-api-key)
+  --display-name "$TCO_SA_NAME-$USER" --expiry-duration 30d \
+  -o json | jq -er .token > ~/.config/temporalio/cloud-operator-e2e-api-key)
 ```
 
 The key has your own permissions, so pre-flight warns that it isn't a service
@@ -307,11 +307,11 @@ installed properly:
 make test-e2e-install
 ```
 
-To run functional tests that verify that the Temporal Resource Operator properly
+To run functional tests that verify that the Temporal Cloud Operator properly
 manages the lifecycle of Temporal Cloud resources:
 
 ```
-make test-e2e-cluster
+make test-e2e-resource
 ```
 
 To run functional tests that verify that the Namespace CRD accepts valid
@@ -337,7 +337,7 @@ An illustrative example of a test that goes through the operator looks like
 the following. It applies a Namespace resource, checks it in Kubernetes,
 checks the result in Temporal Cloud with `e2e-cloud`, and cleans up.
 
-Note: this example can run once [#8](https://github.com/temporalio/resource-operator/issues/8) (create and update namespaces) and [#9](https://github.com/temporalio/resource-operator/issues/9) (delete
+Note: this example can run once [#8](https://github.com/temporalio/cloud-operator/issues/8) (create and update namespaces) and [#9](https://github.com/temporalio/cloud-operator/issues/9) (delete
 namespaces) land.
 
 ```yaml
@@ -374,7 +374,7 @@ tests:
 
  # The namespace really exist in Temporal Cloud and is active.
  - name: cloud-namespace-active
-   exec: e2e-cloud namespace-exists --active tro-e2e-${TEST_CLOUD_RUN_ID}-lifecycle
+   exec: e2e-cloud namespace-exists --active tco-e2e-${TEST_CLOUD_RUN_ID}-lifecycle
    timeout: 2m
    retry:
      interval: 15s
@@ -383,13 +383,13 @@ tests:
  # The expected file lists only the fields to compare, as Cloud names them.
  # (namespace-matches is planned, not yet in e2e-cloud.)
  - name: cloud-namespace-matches-manifest
-   exec: e2e-cloud namespace-matches tro-e2e-${TEST_CLOUD_RUN_ID}-lifecycle expected/lifecycle-cloud.yaml
+   exec: e2e-cloud namespace-matches tco-e2e-${TEST_CLOUD_RUN_ID}-lifecycle expected/lifecycle-cloud.yaml
 
  - name: delete-namespace
-   kube.delete: namespaces.cloud.temporal.io/tro-e2e-${TEST_CLOUD_RUN_ID}-lifecycle
+   kube.delete: namespaces.cloud.temporal.io/tco-e2e-${TEST_CLOUD_RUN_ID}-lifecycle
 
  - name: cloud-namespace-absent-after-delete
-   exec: e2e-cloud namespace-does-not-exist tro-e2e-${TEST_CLOUD_RUN_ID}-lifecycle
+   exec: e2e-cloud namespace-does-not-exist tco-e2e-${TEST_CLOUD_RUN_ID}-lifecycle
    timeout: 10m
    retry:
      interval: 15s
@@ -407,9 +407,9 @@ variables in manifest files too:
 apiVersion: cloud.temporal.io/v1alpha1
 kind: Namespace
 metadata:
-  name: tro-e2e-${TEST_CLOUD_RUN_ID}-lifecycle
+  name: tco-e2e-${TEST_CLOUD_RUN_ID}-lifecycle
 spec:
-  description: manager=resource-operator run-id=${TEST_CLOUD_RUN_ID} owner=${USER}
+  description: manager=cloud-operator run-id=${TEST_CLOUD_RUN_ID} owner=${USER}
   replicas:
     - region: aws-us-west-2
   retentionDays: 1
@@ -431,7 +431,7 @@ TEMPORAL_CLOUD_CLI=bin/temporal-cloud scripts/e2e/e2e-cloud cleanup-run <run ID>
 ```
 
 Each test namespace's description in Temporal Cloud records the manager, run
-ID and owner, e.g. `manager=resource-operator run-id=hs6or-a1b2 owner=tomba`.
+ID and owner, e.g. `manager=cloud-operator run-id=hs6or-a1b2 owner=tomba`.
 The owner is `$USER`; set `TEST_CLOUD_OWNER` to override it, for example in CI.
 
 [gdt]: https://github.com/gdt-dev/gdt

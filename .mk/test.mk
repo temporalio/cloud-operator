@@ -1,10 +1,10 @@
 # ==== Test targets ====
 
 TEST_GDT_ARGS ?= 
-TEST_CLUSTER_NAME ?= tro-test
+TEST_CLUSTER_NAME ?= tco-test
 TEST_KUBE_CONTEXT ?= kind-$(TEST_CLUSTER_NAME)
-TEST_OPERATOR_NAMESPACE ?= temporal-resource-operator
-TEST_CONTAINER_IMAGE ?= temporal-resource-operator
+TEST_OPERATOR_NAMESPACE ?= temporal-cloud-operator
+TEST_CONTAINER_IMAGE ?= temporal-cloud-operator
 TEST_BUILD_DIR ?= $(BUILD_DIR)/$(TEST_CLUSTER_NAME)
 $(TEST_BUILD_DIR):
 	@mkdir -p "$(TEST_BUILD_DIR)"
@@ -46,7 +46,7 @@ test-cluster-create: $(KIND) ## Create the testing cluster.
 	@sleep 5
 
 .PHONY: test-cluster-load-image
-test-cluster-load-image: $(KIND) test-build-resource-operator-image ## Load all images into the test cluster.
+test-cluster-load-image: $(KIND) test-build-cloud-operator-image ## Load all images into the test cluster.
 	@echo -n "loading image '$(TEST_CONTAINER_IMAGE):$(BUILD_GIT_VERSION)' into '$(TEST_CLUSTER_NAME)' kind cluster ... "
 	@$(KIND) load docker-image -q -n "$(TEST_CLUSTER_NAME)" "$(TEST_CONTAINER_IMAGE):$(BUILD_GIT_VERSION)"
 	@echo "ok."
@@ -54,9 +54,9 @@ test-cluster-load-image: $(KIND) test-build-resource-operator-image ## Load all 
 .PHONY: test-cluster-reset
 test-cluster-reset: test-cluster-delete test-cluster-create test-cluster-load-image ## Reset the test cluster entirely.
 
-.PHONY: test-build-resource-operator-image
-test-build-resource-operator-image: ## Build resource-operator container image for use in test cluster.
-	@echo -n "building resource-operator container image for test cluster ($(BUILD_GIT_VERSION)) ... "
+.PHONY: test-build-cloud-operator-image
+test-build-cloud-operator-image: ## Build cloud-operator container image for use in test cluster.
+	@echo -n "building cloud-operator container image for test cluster ($(BUILD_GIT_VERSION)) ... "
 	@$(CONTAINER_TOOL) build --quiet \
 	   -t "$(TEST_CONTAINER_IMAGE):$(BUILD_GIT_VERSION)" \
 	   -f Dockerfile \
@@ -68,20 +68,20 @@ test-build-resource-operator-image: ## Build resource-operator container image f
 	@echo "ok."
 
 .PHONY: test-deploy
-test-deploy: $(TEST_BUILD_DIR) $(KUSTOMIZE) test-clean-build ## Install temporal-resource-operator artifacts to the test cluster.
+test-deploy: $(TEST_BUILD_DIR) $(KUSTOMIZE) test-clean-build ## Install temporal-cloud-operator artifacts to the test cluster.
 	@cp -r deploy $(TEST_BUILD_DIR)/deploy
-	@cd $(TEST_BUILD_DIR)/deploy/kustomize/resource-operator && \
+	@cd $(TEST_BUILD_DIR)/deploy/kustomize/cloud-operator && \
 		"$(KUSTOMIZE)" edit set image $(BUILD_CONTAINER_IMAGE)="$(TEST_CONTAINER_IMAGE):$(BUILD_GIT_VERSION)" && \
 		"$(KUSTOMIZE)" build $(TEST_BUILD_DIR)/deploy/kustomize/overlays/develop | \
 		"$(KUBECTL)" --context $(TEST_KUBE_CONTEXT) apply -f -
 
 .PHONY: test-undeploy
-test-undeploy: $(TEST_BUILD_DIR) $(KUSTOMIZE) ## Uninstall temporal-resource-operator artifacts from the test cluster.
+test-undeploy: $(TEST_BUILD_DIR) $(KUSTOMIZE) ## Uninstall temporal-cloud-operator artifacts from the test cluster.
 	@"$(KUSTOMIZE)" build $(TEST_BUILD_DIR)/deploy/kustomize/overlays/develop | \
 		"$(KUBECTL)" --context $(TEST_KUBE_CONTEXT) delete --ignore-not-found -f -
 
-.PHONY: test-resource-operator-logs
-test-resource-operator-logs: ## Show logs from temporal-resource-operator pod.
+.PHONY: test-cloud-operator-logs
+test-cloud-operator-logs: ## Show logs from temporal-cloud-operator pod.
 	@POD_NAME=$(shell "$(KUBECTL)" --context "$(TEST_KUBE_CONTEXT)" get pods -n $(TEST_OPERATOR_NAMESPACE) -o jsonpath='{.items[*].metadata.name}'); \
 		"$(KUBECTL)" --context $(TEST_KUBE_CONTEXT) -n $(TEST_OPERATOR_NAMESPACE) logs $$POD_NAME
 
@@ -93,16 +93,22 @@ test-clean-build:
 test-clean: test-clean-build test-cluster-delete ## Clean up the test environment.
 
 .PHONY: test-e2e
-test-e2e: test-e2e-install test-e2e-namespace-validation test-e2e-namespace ## Run all end to end tests.
+test-e2e: test-e2e-install test-e2e-resource ## Run all end to end tests.
 
 .PHONY: test-e2e-install
 test-e2e-install: $(GDT) ## Test that expected artifacts are all present in test cluster.
 	@$(GDT) $(TEST_GDT_ARGS) run test/install/check.yaml
 
+.PHONY: test-e2e-resource
+test-e2e-resource: test-e2e-namespace ## Run end to end tests for all ressources managed by temporal-cloud-operator.
+
 .PHONY: test-e2e-namespace
-test-e2e-namespace: $(GDT) ## Test lifecycle management of Temporal Cloud Namespace by the temporal-resource-operator.
-	@TEST_USER_NAMESPACE=tro-e2e-cluster $(GDT) $(TEST_GDT_ARGS) run test/e2e/namespace/happy-default.yaml
+test-e2e-namespace: $(GDT) test-e2e-namespace-resource test-e2e-namespace-validation ## Test handling Temporal Cloud Namespace resources by the temporal-cloud-operator.
+
+.PHONY: test-e2e-namespace-resource
+test-e2e-namespace-resource: $(GDT) ## Test lifecycle management of Temporal Cloud Namespace by the temporal-cloud-operator.
+	@TEST_USER_NAMESPACE=tco-e2e-cluster $(GDT) $(TEST_GDT_ARGS) run test/e2e/namespace/happy-default.yaml
 
 .PHONY: test-e2e-namespace-validation
 test-e2e-namespace-validation: $(GDT) ## Test that the Namespace CRD accepts valid and rejects invalid Namespace manifests.
-	@TEST_USER_NAMESPACE=tro-e2e-validation $(GDT) $(TEST_GDT_ARGS) run test/e2e/namespace/validation.yaml
+	@TEST_USER_NAMESPACE=tco-e2e-validation $(GDT) $(TEST_GDT_ARGS) run test/e2e/namespace/validation.yaml

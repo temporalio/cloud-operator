@@ -1,4 +1,4 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: temporal-resource-operator
+  name: temporal-cloud-operator

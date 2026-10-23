@@ -7,9 +7,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 	tcorev1 "github.com/temporalio/kube-temporal/api/core/v1"
-	tcloudv1alpha1 "github.com/temporalio/resource-operator/api/cloud/v1alpha1"
-	"github.com/temporalio/resource-operator/pkg/temporal/cloud/connection/manager"
-	"github.com/temporalio/resource-operator/pkg/testutil"
+	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
+	"github.com/temporalio/cloud-operator/pkg/temporal/cloud/connection/manager"
+	"github.com/temporalio/cloud-operator/pkg/testutil"
 	tcclient "go.temporal.io/cloud-sdk/cloudclient"
 )
 

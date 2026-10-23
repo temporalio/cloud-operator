@@ -5,7 +5,7 @@ description: |
 
 defaults:
   kube:
-    namespace: temporal-resource-operator
+    namespace: temporal-cloud-operator
 
 tests:
  - name: ensure-namespace-crd
@@ -24,17 +24,17 @@ tests:
      len: 1
 
  - name: ensure-serviceaccount
-   kube.get: serviceaccounts/temporal-resource-operator
+   kube.get: serviceaccounts/temporal-cloud-operator
    require:
      len: 1
 
  - name: ensure-operator-clusterrole
-   kube.get: clusterroles/temporal-resource-operator
+   kube.get: clusterroles/temporal-cloud-operator
    require:
      len: 1
 
  - name: ensure-operator-clusterrole-binding
-   kube.get: clusterrolebindings/temporal-resource-operator
+   kube.get: clusterrolebindings/temporal-cloud-operator
    require:
      len: 1
 
@@ -58,8 +58,8 @@ tests:
    require:
      len: 1
 
- - name: ensure-resource-operator-deployment
-   kube.get: deployments/temporal-resource-operator
+ - name: ensure-cloud-operator-deployment
+   kube.get: deployments/temporal-cloud-operator
    require:
      matches:
        spec:
@@ -67,11 +67,11 @@ tests:
          template:
            metadata:
              labels:
-               app.kubernetes.io/name: temporal-resource-operator
+               app.kubernetes.io/name: temporal-cloud-operator
        status:
          readyReplicas: 1
 
  - name: ensure-cluster-operator-metrics-service
-   kube.get: services/temporal-resource-operator-metrics
+   kube.get: services/temporal-cloud-operator-metrics
    require:
      len: 1

@@ -6,4 +6,4 @@ patches:
   - path: deployment_patch.yaml
     target:
       kind: Deployment
-      name: temporal-resource-operator
+      name: temporal-cloud-operator

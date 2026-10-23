@@ -44,7 +44,7 @@ gen-kube-register: $(KUBE_CODEGEN_PATH) ## Generate API scheme and groupversion 
 	@echo "ok."
 
 .PHONY: gen-kube-manifests
-CONTROLLER_ROLE_NAME ?= temporal-resource-operator
+CONTROLLER_ROLE_NAME ?= temporal-cloud-operator
 gen-kube-manifests: $(CONTROLLER_GEN) ## Generate WebhookConfiguration, ClusterRole objects.
 	@echo -n "generating Kubernetes manifests ... "
 	@$(CONTROLLER_GEN) rbac:roleName=$(CONTROLLER_ROLE_NAME) \

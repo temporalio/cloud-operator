@@ -1,5 +1,5 @@
 # Syntax is here:
 # https://docs.github.com/en/github/creating-cloning-and-archiving-repositories/about-code-owners#codeowners-syntax
 
-# *                @temporalio/resource-operator @jaypipes
+# *                @temporalio/cloud-operator @jaypipes
 *                @jaypipes

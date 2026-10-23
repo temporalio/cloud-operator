@@ -1,15 +1,15 @@
 # Adds namespace to all resources.
-namespace: temporal-resource-operator
+namespace: temporal-cloud-operator
 
 # Labels to add to all resources and selectors.
 labels:
 - pairs:
     control-plane: controller-manager
-    app.kubernetes.io/name: temporal-resource-operator
+    app.kubernetes.io/name: temporal-cloud-operator
     app.kubernetes.io/managed-by: kustomize
 
 resources:
 - namespace.yaml
 - ../crd
 - ../rbac
-- ../resource-operator
+- ../cloud-operator

@@ -8,7 +8,7 @@ ARG TARGET_ARCH=amd64
 ARG GIT_VERSION
 ARG GIT_COMMIT
 ARG BUILD_DATE
-ARG VERSION_PKG=github.com/temporalio/resource-operator/pkg/version
+ARG VERSION_PKG=github.com/temporalio/cloud-operator/pkg/version
 
 ENV GOPROXY=https://proxy.golang.org|direct
 ENV GO111MODULE=on
@@ -27,7 +27,7 @@ COPY controller controller
 COPY pkg pkg
 
 RUN go build -ldflags="-X ${VERSION_PKG}.GitVersion=${GIT_VERSION} -X ${VERSION_PKG}.GitCommit=${GIT_COMMIT} -X ${VERSION_PKG}.BuildDate=${BUILD_DATE}" \
-    -a -o bin/resource-operator cmd/resource-operator/main.go
+    -a -o bin/cloud-operator cmd/cloud-operator/main.go
 
 FROM $RUNTIME_IMAGE
 
@@ -39,7 +39,7 @@ ARG BUILD_DATE
 LABEL org.opencontainers.image.base.name=$RUNTIME_IMAGE
 LABEL org.opencontainers.image.title="Temporal Resource Operator"
 LABEL org.opencontainers.image.description="A Kubernetes Operator that manages the lifecycle of Temporal Cloud resources"
-LABEL org.opencontainers.image.source=https://github.com/temporalio/resource-operator
+LABEL org.opencontainers.image.source=https://github.com/temporalio/cloud-operator
 LABEL org.opencontainers.image.version=$GIT_VERSION
 LABEL org.opencontainers.image.revision=$GIT_COMMIT
 LABEL org.opencontainers.image.vendor="Temporal Technologies, Inc."
@@ -49,7 +49,7 @@ LABEL org.opencontainers.image.licenses=Apache-2.0
 WORKDIR /
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=builder /LICENSE /LICENSE
-COPY --from=builder /bin/resource-operator /bin/resource-operator
+COPY --from=builder /bin/cloud-operator /bin/cloud-operator
 USER 65532:65532
 
-ENTRYPOINT ["/bin/resource-operator"]
+ENTRYPOINT ["/bin/cloud-operator"]

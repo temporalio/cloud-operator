@@ -12,9 +12,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	tcloudcommon "github.com/temporalio/resource-operator/api/cloud/common"
-	tcloudv1alpha1 "github.com/temporalio/resource-operator/api/cloud/v1alpha1"
-	conmgr "github.com/temporalio/resource-operator/pkg/temporal/cloud/connection/manager"
+	tcloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
+	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
+	conmgr "github.com/temporalio/cloud-operator/pkg/temporal/cloud/connection/manager"
 )
 
 // NewOption modifies the Reconciler returned from New.
@@ -71,7 +71,7 @@ func New(opts ...NewOption) *Reconciler {
 }
 
 // Reconciler is the base struct for all controller-specific reconcilers in
-// resource-operator. It contains common methods that all controller-specific
+// cloud-operator. It contains common methods that all controller-specific
 // reconcilers need, for example, to connect to a Temporal Cloud API endpoint.
 type Reconciler struct {
 	ktbase.Reconciler

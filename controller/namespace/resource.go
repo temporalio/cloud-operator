@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	tcloudv1alpha1 "github.com/temporalio/resource-operator/api/cloud/v1alpha1"
+	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 )
 
 // res wraps a Namespace CR and implements the types.Resource

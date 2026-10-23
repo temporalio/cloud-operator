@@ -1,12 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: temporal-resource-operator
+  name: temporal-cloud-operator
 spec:
   template:
     spec:
       containers:
-        - name: resource-operator
+        - name: cloud-operator
           args:
             - --logging-level=debug
             - --logging-format=logfmt

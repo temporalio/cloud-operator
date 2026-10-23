@@ -1,7 +1,7 @@
 package version
 
 const (
-	AppName        = "temporal-resource-operator"
+	AppName        = "temporal-cloud-operator"
 	testingVersion = "v0-testing"
 )
 

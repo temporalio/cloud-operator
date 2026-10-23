@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Temporal Cloud helpers for the resource-operator e2e tests.
+# Temporal Cloud helpers for the cloud-operator e2e tests.
 #
 # Wraps the pinned `temporal-cloud` CLI (installed by `make` into bin/). Every
 # call authenticates with the e2e API key only. The CLI would otherwise fall
@@ -11,7 +11,7 @@ set -o nounset
 set -o pipefail
 
 CLI="${TEMPORAL_CLOUD_CLI:-temporal-cloud}"
-DEFAULT_KEY_FILE="${HOME}/.config/temporalio/resource-operator-e2e-api-key"
+DEFAULT_KEY_FILE="${HOME}/.config/temporalio/cloud-operator-e2e-api-key"
 E2E_PREFIX="tro-e2e-"
 # Each run has a run ID, e.g. hs6or-a1b2, made of:
 #   - the run's start time: minutes since 1970 in base 36, 5 characters
@@ -54,7 +54,7 @@ Resource checks and actions (used by gdt test steps):
   namespace-does-not-exist <name>
                                 Succeed if the namespace does not exist.
   namespace-create <name>       Create a minimal test namespace. Its
-                                description records manager=resource-operator,
+                                description records manager=cloud-operator,
                                 the run ID and the owner.
   namespace-delete <name>       Delete a test namespace, turning off delete
                                 protection first.
@@ -170,12 +170,12 @@ run_id_of() {
 
 # namespace_description prints the description recorded on a new test
 # namespace, so anyone looking at it in Cloud can tell which run and whose it
-# is, e.g. "manager=resource-operator run-id=hs6or-a1b2 owner=tomba".
+# is, e.g. "manager=cloud-operator run-id=hs6or-a1b2 owner=tomba".
 namespace_description() {
 	local owner="${TEST_CLOUD_OWNER:-${USER:-unknown}}"
 	# Keep the description plain printable ASCII, as Cloud requires.
 	owner="$(LC_ALL=C tr -cd 'A-Za-z0-9._@-' <<<"$owner")"
-	echo "manager=resource-operator run-id=$(run_id_of "$1") owner=${owner:-unknown}"
+	echo "manager=cloud-operator run-id=$(run_id_of "$1") owner=${owner:-unknown}"
 }
 
 # require_run_id stops unless id is a whole run ID, so cleanup can never match
@@ -358,7 +358,7 @@ cmd_preflight() {
 	role="$(jq -r '(.serviceAccount // .user // {}).spec.access.accountAccess.role // "unknown"' <<<"$who")"
 	ok "identity: ${principal} (account role: ${role})"
 	if jq -e '.serviceAccount == null' <<<"$who" >/dev/null; then
-		warn "the key does not belong to a service account. Use a resource-operator-e2e service account key. See ${RUNBOOK}"
+		warn "the key does not belong to a service account. Use a cloud-operator-e2e service account key. See ${RUNBOOK}"
 	fi
 	case "$role" in
 	ROLE_OWNER | ROLE_ADMIN | ROLE_GLOBAL_ADMIN)

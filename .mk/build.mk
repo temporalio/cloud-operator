@@ -16,7 +16,7 @@ BUILD_GIT_VERSION ?= $(GIT_VERSION)
 BUILD_GIT_COMMIT ?= $(GIT_COMMIT)
 BUILD_VERSION_PKG ?= $(VERSION_PKG)
 
-BUILD_CONTAINER_IMAGE ?= temporalio/resource-operator
+BUILD_CONTAINER_IMAGE ?= temporalio/cloud-operator
 
 ##@ Build binaries and container images
 
@@ -24,21 +24,21 @@ BUILD_CONTAINER_IMAGE ?= temporalio/resource-operator
 build-all: build build-image ## Build all binaries and container images.
 
 .PHONY: build
-build: build-resource-operator ## Build all binaries.
+build: build-cloud-operator ## Build all binaries.
 
-.PHONY: build-resource-operator
-build-resource-operator: | $(BUILD_DIR) ## Build resource-operator binary.
-	@echo -n "building resource-operator binary ($(BUILD_GIT_VERSION)) ... "
+.PHONY: build-cloud-operator
+build-cloud-operator: | $(BUILD_DIR) ## Build cloud-operator binary.
+	@echo -n "building cloud-operator binary ($(BUILD_GIT_VERSION)) ... "
 	@go build -ldflags="-X $(BUILD_VERSION_PKG).GitVersion=$(BUILD_GIT_VERSION) -X $(BUILD_VERSION_PKG).GitCommit=$(BUILD_GIT_COMMIT) -X $(BUILD_VERSION_PKG).BuildDate=$(BUILD_DATE)" \
-		-a -o $(BUILD_DIR)/resource-operator cmd/resource-operator/main.go
+		-a -o $(BUILD_DIR)/cloud-operator cmd/cloud-operator/main.go
 	@echo "ok."
 
 .PHONY: build-image
-build-image: build-resource-operator-image ## Build all container images.
+build-image: build-cloud-operator-image ## Build all container images.
 
-.PHONY: build-resource-operator-image
-build-resource-operator-image: ## Build resource-operator container image.
-	@echo -n "building resource-operator container image ($(BUILD_GIT_VERSION)) ... "
+.PHONY: build-cloud-operator-image
+build-cloud-operator-image: ## Build cloud-operator container image.
+	@echo -n "building cloud-operator container image ($(BUILD_GIT_VERSION)) ... "
 	@$(CONTAINER_TOOL) build --quiet \
 	   -t "$(BUILD_CONTAINER_IMAGE):$(BUILD_GIT_VERSION)" \
 	   -f Dockerfile \

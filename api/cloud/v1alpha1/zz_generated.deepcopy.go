@@ -6,7 +6,7 @@
 package v1alpha1
 
 import (
-	common "github.com/temporalio/resource-operator/api/cloud/common"
+	common "github.com/temporalio/cloud-operator/api/cloud/common"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 

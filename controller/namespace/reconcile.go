@@ -10,8 +10,8 @@ import (
 	ctrlrt "sigs.k8s.io/controller-runtime"
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	tcloudv1alpha1 "github.com/temporalio/resource-operator/api/cloud/v1alpha1"
-	"github.com/temporalio/resource-operator/pkg/reconciler/base"
+	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
+	"github.com/temporalio/cloud-operator/pkg/reconciler/base"
 )
 
 // NewrOption modifies the Reconciler returned from NewReconciler.
