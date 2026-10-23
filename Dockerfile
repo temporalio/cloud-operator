@@ -37,7 +37,7 @@ ARG GIT_COMMIT
 ARG BUILD_DATE
 
 LABEL org.opencontainers.image.base.name=$RUNTIME_IMAGE
-LABEL org.opencontainers.image.title="Temporal Resource Operator"
+LABEL org.opencontainers.image.title="Temporal Cloud Operator"
 LABEL org.opencontainers.image.description="A Kubernetes Operator that manages the lifecycle of Temporal Cloud resources"
 LABEL org.opencontainers.image.source=https://github.com/temporalio/cloud-operator
 LABEL org.opencontainers.image.version=$GIT_VERSION
