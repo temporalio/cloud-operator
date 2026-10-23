@@ -14,10 +14,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	ctrlrtlog "sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/temporalio/kube-temporal/pkg/controller/config"
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 	ctrlnamespace "github.com/temporalio/cloud-operator/controller/namespace"
 	"github.com/temporalio/cloud-operator/pkg/version"
+	"github.com/temporalio/kube-temporal/pkg/controller/config"
 )
 
 const (

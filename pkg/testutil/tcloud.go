@@ -1,9 +1,9 @@
 package testutil
 
 import (
-	tcorev1 "github.com/temporalio/kube-temporal/api/core/v1"
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 	"github.com/temporalio/cloud-operator/pkg/version"
+	tcorev1 "github.com/temporalio/kube-temporal/api/core/v1"
 	tcclient "go.temporal.io/cloud-sdk/cloudclient"
 )
 

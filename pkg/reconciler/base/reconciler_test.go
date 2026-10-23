@@ -7,13 +7,13 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	tcorev1 "github.com/temporalio/kube-temporal/api/core/v1"
 	tcloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 	"github.com/temporalio/cloud-operator/controller/namespace"
 	"github.com/temporalio/cloud-operator/pkg/reconciler/base"
 	conmgr "github.com/temporalio/cloud-operator/pkg/temporal/cloud/connection/manager"
 	"github.com/temporalio/cloud-operator/pkg/testutil"
+	tcorev1 "github.com/temporalio/kube-temporal/api/core/v1"
 	tcloudservicev1 "go.temporal.io/cloud-sdk/api/cloudservice/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 )

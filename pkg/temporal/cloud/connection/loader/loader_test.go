@@ -9,11 +9,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	tcorev1 "github.com/temporalio/kube-temporal/api/core/v1"
-	kttestutil "github.com/temporalio/kube-temporal/pkg/testutil"
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 	"github.com/temporalio/cloud-operator/pkg/temporal/cloud/connection/loader"
 	"github.com/temporalio/cloud-operator/pkg/testutil"
+	tcorev1 "github.com/temporalio/kube-temporal/api/core/v1"
+	kttestutil "github.com/temporalio/kube-temporal/pkg/testutil"
 	tcclient "go.temporal.io/cloud-sdk/cloudclient"
 	kcorev1 "k8s.io/api/core/v1"
 	kcrfake "sigs.k8s.io/controller-runtime/pkg/client/fake"

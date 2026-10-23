@@ -5,11 +5,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	kttestutil "github.com/temporalio/kube-temporal/pkg/testutil"
-	"github.com/temporalio/kube-temporal/pkg/types"
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 	"github.com/temporalio/cloud-operator/controller/namespace"
 	"github.com/temporalio/cloud-operator/pkg/testutil"
+	kttestutil "github.com/temporalio/kube-temporal/pkg/testutil"
+	"github.com/temporalio/kube-temporal/pkg/types"
 	ctrlrt "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
