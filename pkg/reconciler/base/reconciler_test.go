@@ -13,6 +13,7 @@ import (
 	"github.com/temporalio/cloud-operator/pkg/reconciler/base"
 	conmgr "github.com/temporalio/cloud-operator/pkg/temporal/cloud/connection/manager"
 	"github.com/temporalio/cloud-operator/pkg/testutil"
+	"github.com/temporalio/cloud-operator/pkg/testutil/kube"
 	tcorev1 "github.com/temporalio/kube-temporal/api/core/v1"
 	tcloudservicev1 "go.temporal.io/cloud-sdk/api/cloudservice/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -70,7 +71,7 @@ func TestReconciler_CloudClientFor(t *testing.T) {
 			name: "fail if subject not resource, string or conn spec",
 			r: base.New(
 				base.WithKubeClient(
-					testutil.NewFakeClient(tns()),
+					kube.NewFakeClient(tns()),
 				),
 			),
 			subject: int64(1),
@@ -100,7 +101,7 @@ func TestReconciler_CloudClientFor(t *testing.T) {
 			r: func() *base.Reconciler {
 				b := base.New(
 					base.WithKubeClient(
-						testutil.NewFakeClient(tns()),
+						kube.NewFakeClient(tns()),
 					),
 				)
 				ccm := b.CloudConnectionManager()
@@ -132,7 +133,7 @@ func TestReconciler_CloudClientFor(t *testing.T) {
 			r: func() *base.Reconciler {
 				b := base.New(
 					base.WithKubeClient(
-						testutil.NewFakeClient(tns()),
+						kube.NewFakeClient(tns()),
 					),
 				)
 				ccm := b.CloudConnectionManager()
@@ -150,7 +151,7 @@ func TestReconciler_CloudClientFor(t *testing.T) {
 			r: func() *base.Reconciler {
 				b := base.New(
 					base.WithKubeClient(
-						testutil.NewFakeClient(tns()),
+						kube.NewFakeClient(tns()),
 					),
 				)
 				ccm := b.CloudConnectionManager()
@@ -168,7 +169,7 @@ func TestReconciler_CloudClientFor(t *testing.T) {
 			r: func() *base.Reconciler {
 				b := base.New(
 					base.WithKubeClient(
-						testutil.NewFakeClient(tns()),
+						kube.NewFakeClient(tns()),
 					),
 				)
 				ccm := b.CloudConnectionManager()

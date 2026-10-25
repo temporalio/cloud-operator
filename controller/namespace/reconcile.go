@@ -6,6 +6,7 @@ import (
 
 	ctrlreqlog "github.com/temporalio/kube-temporal/pkg/controller/request/log"
 	"github.com/temporalio/kube-temporal/pkg/types"
+	tcloudservicev1 "go.temporal.io/cloud-sdk/api/cloudservice/v1"
 	tcclient "go.temporal.io/cloud-sdk/cloudclient"
 	ctrlrt "sigs.k8s.io/controller-runtime"
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -105,19 +106,19 @@ func (r *Reconciler) ResourceSetLatest(
 	// "pop" the underlying *tcloudv1alpha1.Namespace from the [types.Resource]
 	// wrapper. This is a pointer so by modifying it, you mutate the supplied
 	// `latest` parameter.
-	ns := latest.(*res).cr
-	_ = ns
+	cr := latest.(*res).cr
+	_ = cr
 
 	// TODO: call the Temporal Cloud API to fetch Namespace spec and status and
 	// mutate the supplied resource to set the spec and status fields
 	// accordingly.
-	//
-	// latestObserved, err := tcc.CloudService().GetNamespace(...)
-	// if err != nil {
-	//     return fmt.Errorf("failed getting tcloud namespace: %w", err)
-	// }
-	// ns.Spec.ProjectID = latestObserved.ProjectId
-	// ...
+	req := tcloudservicev1.GetNamespaceRequest{}
+	resp, err := tcc.GetNamespace(ctx, &req)
+	if err != nil {
+		return fmt.Errorf("failed getting tcloud namespace: %w", err)
+	}
+	ns := resp.GetNamespace()
+	cr.Spec.Project = ns.GetProjectId()
 
 	return err
 }
