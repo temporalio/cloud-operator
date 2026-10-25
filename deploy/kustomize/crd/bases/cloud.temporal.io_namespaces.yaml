@@ -135,6 +135,15 @@ spec:
                   type: string
                 type: array
                 x-kubernetes-list-type: set
+              deletionPolicy:
+                description: |-
+                  DeletionPolicy controls what happens to the Temporal Cloud Namespace
+                  when this resource is deleted. Retain leaves it in Temporal Cloud.
+                  Delete permanently deletes it and all its data.
+                enum:
+                - Retain
+                - Delete
+                type: string
               description:
                 description: |-
                   Description is a human-readable description of the Namespace.
