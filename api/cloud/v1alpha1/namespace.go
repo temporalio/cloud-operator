@@ -139,16 +139,6 @@ type NamespaceSpec struct {
 	// Maps to Temporal Cloud proto `NamespaceSpec.description`.
 	// +optional
 	Description string `json:"description,omitempty"`
-	// TODO(Mechack 10/25/2026): Ask #crew K8s how we should handle delete when this field is not set
-	// Should the default depend on whether the operator created or adopted the Namespace
-	// (for example, Retain for adopted, Delete for created), and should an explicit Delete ever be
-	// honored for an adopted Namespace?
-
-	// DeletionPolicy controls what happens to the Temporal Cloud Namespace
-	// when this resource is deleted. Retain leaves it in Temporal Cloud.
-	// Delete permanently deletes it.
-	// +optional
-	DeletionPolicy cloudcommon.DeletionPolicy `json:"deletionPolicy,omitempty"`
 }
 
 // FromProto sets the spec from the supplied Temporal Cloud NamespaceSpec.

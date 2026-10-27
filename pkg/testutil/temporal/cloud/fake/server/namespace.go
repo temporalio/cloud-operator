@@ -117,3 +117,70 @@ func (s fakeServer) GetNamespaces(
 	}
 	return s.UnimplementedCloudServiceServer.GetNamespaces(ctx, req)
 }
+
+type DeleteNamespaceFunc func(
+	context.Context,
+	*tcloudservicev1.DeleteNamespaceRequest,
+) (*tcloudservicev1.DeleteNamespaceResponse, error)
+
+// WithDeleteNamespace sets the fake server's DeleteNamespace function
+// override.
+func WithDeleteNamespace(fn DeleteNamespaceFunc) NewOption {
+	return func(s *fakeServer) {
+		s.deleteNamespaceFunc = fn
+	}
+}
+
+// OnDeleteNamespace lets tests validate arguments passed to DeleteNamespace
+// and set its response.
+func OnDeleteNamespace(
+	asserter func(*tcloudservicev1.DeleteNamespaceRequest),
+	returner func() (*tcloudservicev1.DeleteNamespaceResponse, error),
+) NewOption {
+	return func(s *fakeServer) {
+		fn := func(
+			ctx context.Context, req *tcloudservicev1.DeleteNamespaceRequest,
+		) (*tcloudservicev1.DeleteNamespaceResponse, error) {
+			if asserter != nil {
+				asserter(req)
+			}
+			if returner == nil {
+				return &tcloudservicev1.DeleteNamespaceResponse{}, nil
+			}
+			resp, err := returner()
+			if resp == nil && err == nil {
+				resp = &tcloudservicev1.DeleteNamespaceResponse{}
+			}
+			return resp, err
+		}
+		s.deleteNamespaceFunc = fn
+	}
+}
+
+// OnDeleteNamespaceReturn sets the response returned by DeleteNamespace.
+func OnDeleteNamespaceReturn(
+	resp *tcloudservicev1.DeleteNamespaceResponse,
+	err error,
+) NewOption {
+	if resp == nil && err == nil {
+		resp = &tcloudservicev1.DeleteNamespaceResponse{}
+	}
+	return func(s *fakeServer) {
+		fn := func(
+			context.Context, *tcloudservicev1.DeleteNamespaceRequest,
+		) (*tcloudservicev1.DeleteNamespaceResponse, error) {
+			return resp, err
+		}
+		s.deleteNamespaceFunc = fn
+	}
+}
+
+func (s fakeServer) DeleteNamespace(
+	ctx context.Context,
+	req *tcloudservicev1.DeleteNamespaceRequest,
+) (*tcloudservicev1.DeleteNamespaceResponse, error) {
+	if s.deleteNamespaceFunc != nil {
+		return s.deleteNamespaceFunc(ctx, req)
+	}
+	return s.UnimplementedCloudServiceServer.DeleteNamespace(ctx, req)
+}
