@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 	"github.com/temporalio/cloud-operator/controller/namespace"
@@ -95,14 +96,13 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 	tns.Spec.Project = project
 
 	cases := []struct {
-		name         string
-		r            *namespace.Reconciler
-		reconOpts    []namespace.NewReconcilerOption
-		serverOpts   []fakeserver.NewOption
-		getNamespace fakeserver.GetNamespaceFunc
-		res          types.Resource
-		latest       types.Resource
-		expErr       string
+		name       string
+		r          *namespace.Reconciler
+		serverOpts []fakeserver.NewOption
+		asserter   func(*testing.T) fakeserver.GetNamespaceAssertFunc
+		res        types.Resource
+		latest     types.Resource
+		expErr     string
 	}{
 		{
 			name:   "fail nil cloud connection manager or default client",
@@ -119,6 +119,16 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 			},
 			res:    namespace.NewResource(tns),
 			expErr: "failed getting tcloud namespace: rpc error: code = Unknown desc = Indy! Bad dates!",
+		},
+		{
+			name: "fail if get namespace request empty",
+			asserter: func(tt *testing.T) fakeserver.GetNamespaceAssertFunc {
+				assert := assert.New(tt)
+				return func(req *tcloudservicev1.GetNamespaceRequest) {
+					assert.NotEmpty(req.GetNamespace())
+				}
+			},
+			res: namespace.NewResource(tns),
 		},
 		{
 			name: "latest spec is mutated",
@@ -155,9 +165,11 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 			require := require.New(tt)
 
 			sopts := tc.serverOpts
-			if tc.getNamespace != nil {
+
+			if tc.asserter != nil {
 				sopts = append(
-					sopts, fakeserver.WithGetNamespace(tc.getNamespace),
+					sopts,
+					fakeserver.OnGetNamespaceAssert(tc.asserter(tt)),
 				)
 			}
 
@@ -177,7 +189,6 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 						kube.NewFakeClient(tns),
 					),
 				}
-				ropts = append(ropts, tc.reconOpts...)
 
 				r = namespace.NewReconciler(ropts...)
 			}

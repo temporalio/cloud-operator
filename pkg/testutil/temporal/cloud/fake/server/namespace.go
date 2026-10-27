@@ -11,6 +11,8 @@ type GetNamespaceFunc func(
 	*tcloudservicev1.GetNamespaceRequest,
 ) (*tcloudservicev1.GetNamespaceResponse, error)
 
+type GetNamespaceAssertFunc func(*tcloudservicev1.GetNamespaceRequest)
+
 // WithGetNamespace sets the fake server's GetNamespace function override.
 func WithGetNamespace(fn GetNamespaceFunc) NewOption {
 	return func(s *fakeServer) {
@@ -18,24 +20,17 @@ func WithGetNamespace(fn GetNamespaceFunc) NewOption {
 	}
 }
 
-// OnGetNamespace allows the test author to supply a function that checks
-// arguments passed to the GetNamespace method are expected as well as set a
-// return value from GetNamespace.
-func OnGetNamespace(
-	asserter func(*tcloudservicev1.GetNamespaceRequest),
-	returner func() (*tcloudservicev1.GetNamespaceResponse, error),
+// OnGetNamespaceAssert allows the test author to supply a function that checks
+// arguments passed to the GetNamespace method are expected.
+func OnGetNamespaceAssert(
+	asserter GetNamespaceAssertFunc,
 ) NewOption {
 	return func(s *fakeServer) {
 		fn := func(
 			ctx context.Context, req *tcloudservicev1.GetNamespaceRequest,
 		) (*tcloudservicev1.GetNamespaceResponse, error) {
-			if asserter != nil {
-				asserter(req)
-			}
-			if returner == nil {
-				return nil, nil
-			}
-			return returner()
+			asserter(req)
+			return nil, nil
 		}
 		s.getNamespaceFunc = fn
 	}
