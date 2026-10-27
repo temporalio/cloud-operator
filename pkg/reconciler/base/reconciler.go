@@ -5,11 +5,11 @@ import (
 	"fmt"
 
 	ctrlreqlog "github.com/temporalio/kube-temporal/pkg/controller/request/log"
+	"github.com/temporalio/kube-temporal/pkg/kube/annotation"
 	ktbase "github.com/temporalio/kube-temporal/pkg/reconciler/base"
 	"github.com/temporalio/kube-temporal/pkg/types"
 	tcloudservicev1 "go.temporal.io/cloud-sdk/api/cloudservice/v1"
 	tcclient "go.temporal.io/cloud-sdk/cloudclient"
-	"k8s.io/apimachinery/pkg/api/meta"
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	tcloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
@@ -161,13 +161,9 @@ func (r *Reconciler) CloudClientFor(
 	case string, *tcloudv1alpha1.ConnectionSpec:
 		cli, err = r.ccManager.Client(subject)
 	case types.Resource:
-		ro := subject.RuntimeObject()
-		metaAccessor := meta.NewAccessor()
-		annos, err := metaAccessor.Annotations(ro)
-		if err != nil {
-			return nil, fmt.Errorf("failed getting resource annotations: %w", err)
-		}
-		hp, ok := annos[tcloudcommon.AnnotationKeyTemporalCloudHostPort]
+		hp, ok := annotation.Value(
+			subject, tcloudcommon.AnnotationKeyTemporalCloudHostPort,
+		)
 		if !ok {
 			return nil, fmt.Errorf(
 				"no %q annotation on resource",

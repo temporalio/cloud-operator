@@ -3,6 +3,7 @@ package namespace
 import (
 	"log/slog"
 
+	"github.com/temporalio/kube-temporal/pkg/kube/annotation"
 	"github.com/temporalio/kube-temporal/pkg/kube/transform"
 	"github.com/temporalio/kube-temporal/pkg/resource"
 	"github.com/temporalio/kube-temporal/pkg/types"
@@ -20,6 +21,11 @@ import (
 type res struct {
 	// cr is the Kubernetes-native custom resource.
 	cr *tcloudv1alpha1.Namespace
+}
+
+// CR returns the underlying custom resource.
+func (r res) CR() any {
+	return r.cr
 }
 
 // IsBeingDeleted returns true if the Kubernetes resource has a non-zero
@@ -56,6 +62,17 @@ func (r res) Conditions() []*metav1.Condition {
 // supplied collection. Satisfies the `pkg/condition.Manager` interface.
 func (r *res) ReplaceConditions(conditions []*metav1.Condition) {
 	r.cr.Status.Conditions = conditions
+}
+
+// Annotations returns the set of Annotations.
+func (r *res) Annotations() annotation.Annotations {
+	return r.cr.ObjectMeta.Annotations
+}
+
+// ReplaceAnnotations replaces the resource's set of Annotations with
+// the supplied Annotations.
+func (r *res) ReplaceAnnotations(annos annotation.Annotations) {
+	r.cr.ObjectMeta.Annotations = annos
 }
 
 // DeepCopy returns a copy of the resource

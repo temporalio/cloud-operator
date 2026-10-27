@@ -151,6 +151,21 @@ func (r *Reconciler) ResourceSetLatest(
 
 	ns.Spec = namespaceSpecFromProto(tns)
 	ns.Status.ResourceStatus = resourceStatusFromProto(tns)
+	cr := latest.(*res).cr
+	_ = cr
+
+	// TODO: call the Temporal Cloud API to fetch Namespace spec and status and
+	// mutate the supplied resource to set the spec and status fields
+	// accordingly.
+	req := tcloudservicev1.GetNamespaceRequest{
+		Namespace: cr.Name,
+	}
+	resp, err := tcc.GetNamespace(ctx, &req)
+	if err != nil {
+		return fmt.Errorf("failed getting tcloud namespace: %w", err)
+	}
+	ns := resp.GetNamespace()
+	cr.Spec.Project = ns.GetProjectId()
 
 	return err
 }
