@@ -1,0 +1,11 @@
+apiVersion: cloud.temporal.io/v1alpha1
+kind: ClusterConnection
+metadata:
+  name: default
+spec:
+  hostPort: saas-api.tmprl.cloud:443
+  credentials:
+    apiKey:
+      secretRef:
+        name: temporal-cloud-api-key
+        key: apikey

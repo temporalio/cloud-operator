@@ -1,0 +1,13 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal-cloud-operator
+  namespace: temporal-cloud-operator
+spec:
+  template:
+    spec:
+      containers:
+      - name: cloud-operator
+        env:
+        - name: DEFAULT_CLOUD_CONNECTION_NAME
+          value: default
