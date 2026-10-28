@@ -113,22 +113,22 @@ func (r *Reconciler) ResourceSetLatest(
 	// "pop" the underlying *tcloudv1alpha1.Namespace from the [types.Resource]
 	// wrapper. This is a pointer so by modifying it, you mutate the supplied
 	// `latest` parameter.
-	ns := latest.(*res).cr
+	cr := latest.(*res).cr
 
 	var tns *tcloudnamespacev1.Namespace
-	if ns.Status.ID == "" {
+	if cr.Status.ID == "" {
 		// The qualified namespace name is only known once a reconcile after
 		// the create has saved it to status, and status can be lost (e.g. the
 		// CR was recreated). Look the namespace up by name so that a duplicate
 		// is never created.
-		tns, err = findNamespaceByName(ctx, tcc, ns.Name)
+		tns, err = findNamespaceByName(ctx, tcc, cr.Name)
 		if err != nil {
 			return fmt.Errorf("failed listing tcloud namespaces: %w", err)
 		}
 	} else {
 		var resp *tcloudservicev1.GetNamespaceResponse
 		resp, err = tcc.GetNamespace(ctx, &tcloudservicev1.GetNamespaceRequest{
-			Namespace: ns.Status.ID,
+			Namespace: cr.Status.ID,
 		})
 		if status.Code(err) == codes.NotFound {
 			// The namespace was deleted outside of the operator. Treat it
@@ -144,28 +144,28 @@ func (r *Reconciler) ResourceSetLatest(
 	if tns == nil {
 		// The namespace does not exist in Temporal Cloud, so mutate latest
 		// spec and status to be empty.
-		ns.Spec = tcloudv1alpha1.NamespaceSpec{}
-		ns.Status.ResourceStatus = cloudcommon.ResourceStatus{}
+		cr.Spec = tcloudv1alpha1.NamespaceSpec{}
+		cr.Status.ResourceStatus = cloudcommon.ResourceStatus{}
 		return nil
 	}
 
-	ns.Spec = namespaceSpecFromProto(tns)
-	ns.Status.ResourceStatus = resourceStatusFromProto(tns)
-	cr := latest.(*res).cr
-	_ = cr
+	cr.FromProto(tns)
 
-	// TODO: call the Temporal Cloud API to fetch Namespace spec and status and
-	// mutate the supplied resource to set the spec and status fields
-	// accordingly.
-	req := tcloudservicev1.GetNamespaceRequest{
-		Namespace: cr.Name,
-	}
-	resp, err := tcc.GetNamespace(ctx, &req)
-	if err != nil {
-		return fmt.Errorf("failed getting tcloud namespace: %w", err)
-	}
-	ns := resp.GetNamespace()
-	cr.Spec.Project = ns.GetProjectId()
+	// cr := latest.(*res).cr
+	// _ = cr
+
+	// // TODO: call the Temporal Cloud API to fetch Namespace spec and status and
+	// // mutate the supplied resource to set the spec and status fields
+	// // accordingly.
+	// req := tcloudservicev1.GetNamespaceRequest{
+	// 	Namespace: cr.Name,
+	// }
+	// resp, err := tcc.GetNamespace(ctx, &req)
+	// if err != nil {
+	// 	return fmt.Errorf("failed getting tcloud namespace: %w", err)
+	// }
+	// ns := resp.GetNamespace()
+	// cr.Spec.Project = ns.GetProjectId()
 
 	return err
 }
@@ -214,10 +214,11 @@ func syncNamespace(
 	latest *tcloudv1alpha1.Namespace,
 ) error {
 	if latest.Status.ID == "" {
+		tns := desired.ToProto()
 		resp, err := tcc.CreateNamespace(ctx, &tcloudservicev1.CreateNamespaceRequest{
-			Spec:      namespaceSpecToProto(desired),
-			Tags:      desired.Spec.Tags,
-			ProjectId: desired.Spec.Project,
+			Spec:      tns.GetSpec(),
+			Tags:      tns.GetTags(),
+			ProjectId: tns.GetProjectId(),
 		})
 		if err != nil {
 			return cloudCallError("creating tcloud namespace", err)
@@ -228,18 +229,39 @@ func syncNamespace(
 		)
 	}
 
+	// Only an Active namespace accepts new operations. Every other state
+	// either resolves on its own, so we wait, or needs someone to step in, so
+	// we stop. Unknown states also wait rather than fall through to an update.
 	id := latest.Status.ID
 	switch state := latest.Status.State; state {
+	case cloudcommon.ResourceStateActive:
 	case cloudcommon.ResourceStateActivating, cloudcommon.ResourceStateUpdating:
 		return requeue.NeededAfter(
 			fmt.Errorf("waiting for tcloud namespace %q to leave state %s", id, state),
 			requeue.DefaultRequeueAfterDuration,
 		)
-	case cloudcommon.ResourceStateActivationFailed, cloudcommon.ResourceStateUpdateFailed:
+	case cloudcommon.ResourceStateDeleting, cloudcommon.ResourceStateDeleted:
+		// The namespace was deleted outside of the operator. Once Temporal
+		// Cloud reports it as not found, ResourceSetLatest clears the status
+		// and the next sync recreates it.
+		return requeue.NeededAfter(
+			fmt.Errorf("waiting for tcloud namespace %q to finish deleting, state %s", id, state),
+			requeue.DefaultRequeueAfterDuration,
+		)
+	case cloudcommon.ResourceStateActivationFailed,
+		cloudcommon.ResourceStateUpdateFailed,
+		cloudcommon.ResourceStateDeleteFailed,
+		cloudcommon.ResourceStateSuspended,
+		cloudcommon.ResourceStateExpired:
 		return ctrlerrors.NewTerminalError(fmt.Errorf(
 			"%w: tcloud namespace %q is in state %s, contact Temporal Cloud support",
 			ctrlerrors.ErrResourceSync, id, state,
 		))
+	default:
+		return requeue.NeededAfter(
+			fmt.Errorf("waiting for tcloud namespace %q to leave unknown state %q", id, state),
+			requeue.DefaultRequeueAfterDuration,
+		)
 	}
 
 	// spec.project is immutable on the CR, so a mismatch means the namespace
@@ -262,7 +284,7 @@ func syncNamespace(
 	) {
 		_, err := tcc.UpdateNamespace(ctx, &tcloudservicev1.UpdateNamespaceRequest{
 			Namespace:       id,
-			Spec:            namespaceSpecToProto(desired),
+			Spec:            desired.ToProto().GetSpec(),
 			ResourceVersion: latest.Status.ResourceVersion,
 		})
 		if err != nil {
@@ -380,10 +402,13 @@ func tagsDiff(
 // finalizer on the associated [client.Object]. The Controller handles that.
 // All the Reconciler needs to do is delete any owned resources or
 // externally-managed resources associated with the supplied [types.Resource].
+//
+// It returns a copy of the supplied [types.Resource] with any status
+// mutations applied to the copy. `original` is not mutated.
 func (r *Reconciler) ResourceDelete(
 	ctx context.Context,
-	desired types.Resource,
-) error {
+	original types.Resource,
+) (types.Resource, error) {
 	var err error
 	log := ctrlreqlog.FromContext(ctx)
 	exit := log.Trace("resource.delete")
@@ -391,15 +416,17 @@ func (r *Reconciler) ResourceDelete(
 		exit(err)
 	}()
 
-	tcc, err := r.CloudClientFor(ctx, desired)
+	latest := original.DeepCopy()
+
+	tcc, err := r.CloudClientFor(ctx, original)
 	if err != nil {
-		return fmt.Errorf("failed getting tcloud client: %w", err)
+		return latest, fmt.Errorf("failed getting tcloud client: %w", err)
 	}
 	_ = tcc
 
 	// TODO: call the Temporal Cloud API to delete the Namespace.
 
-	return err
+	return latest, err
 }
 
 // compile-time check that Reconciler satisfies the [types.Reconciler]
