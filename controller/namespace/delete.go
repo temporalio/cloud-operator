@@ -29,10 +29,7 @@ import (
 // It works on a copy of `original` and returns that copy, with any status
 // changes (State, AsyncOperationID, conditions), as the latest state.
 // `original` is never mutated.
-//
-// TODO(Mechack): status.id and status.resourceVersion are only set once the
-// create path is merged. Until then they're empty, so ResourceDelete treats
-// every Namespace as never created. Delete this TODO when it lands.
+
 func (r *Reconciler) ResourceDelete(
 	ctx context.Context,
 	original types.Resource,
