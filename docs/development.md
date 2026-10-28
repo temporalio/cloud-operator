@@ -132,25 +132,25 @@ Then create your key and save it:
 TCO_SA_ID=$(bin/temporal-cloud service-account list -o json |
   jq -er --arg name "$TCO_SA_NAME" '.ServiceAccounts[] | select(.spec.name == $name) | .id')
 
-(umask 077; bin/temporal-cloud apikey create-for-service-account \
+bin/temporal-cloud apikey create-for-service-account \
   --service-account-id "$TCO_SA_ID" \
   --display-name "$TCO_SA_NAME-$USER" --expiry-duration 30d \
-  -o json | jq -er .token > ~/.config/temporalio/cloud-operator-e2e-api-key)
+  -o json | jq -er .token > ~/.config/temporalio/cloud-operator-e2e-api-key
 ```
 
 #### 2b. Developer
 
 ```
-(umask 077; bin/temporal-cloud apikey create-for-me \
+bin/temporal-cloud apikey create-for-me \
   --display-name "$TCO_SA_NAME-$USER" --expiry-duration 30d \
-  -o json | jq -er .token > ~/.config/temporalio/cloud-operator-e2e-api-key)
+  -o json | jq -er .token > ~/.config/temporalio/cloud-operator-e2e-api-key
 ```
+
+#### 3. Check it works
 
 The key has your own permissions, so pre-flight warns that it isn't a service
 account key. If personal keys are turned off for the account, ask an Admin for a
 service account key.
-
-#### 3. Check it works
 
 ```
 make test-cloud-preflight
@@ -248,7 +248,6 @@ description: Applying a Namespace creates it in Temporal Cloud and deleting it r
 
 depends:
   - name: e2e-cloud
-  - name: kubectl
 
 defaults:
   kube:
