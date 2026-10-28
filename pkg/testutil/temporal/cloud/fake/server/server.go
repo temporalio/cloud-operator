@@ -14,7 +14,8 @@ type fakeServer struct {
 	lis        net.Listener
 	tcloudservicev1.UnimplementedCloudServiceServer
 
-	getNamespaceFunc GetNamespaceFunc
+	getNamespaceFunc  GetNamespaceFunc
+	getNamespacesFunc GetNamespacesFunc
 }
 
 // HostPort returns the address of the TCP localhost port that the fake server

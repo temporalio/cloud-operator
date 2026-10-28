@@ -1,6 +1,7 @@
 package common
 
 import (
+	tcloudresourcev1 "go.temporal.io/cloud-sdk/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -45,6 +46,66 @@ type ResourceStatus struct {
 // Maps to Temporal Cloud proto `ResourceState`.
 // +kubebuilder:validation:Enum=Activating;ActivationFailed;Active;Updating;UpdateFailed;Deleting;DeleteFailed;Deleted;Suspended;Expired
 type ResourceState string
+
+// FromProto sets the state from a Temporal Cloud resource state. Unspecified
+// and unknown states map to "": the CR field is enum-validated, so an
+// unrecognized value would fail the status patch.
+func (s *ResourceState) FromProto(in tcloudresourcev1.ResourceState) {
+	switch in {
+	case tcloudresourcev1.ResourceState_RESOURCE_STATE_ACTIVATING:
+		*s = ResourceStateActivating
+	case tcloudresourcev1.ResourceState_RESOURCE_STATE_ACTIVATION_FAILED:
+		*s = ResourceStateActivationFailed
+	case tcloudresourcev1.ResourceState_RESOURCE_STATE_ACTIVE:
+		*s = ResourceStateActive
+	case tcloudresourcev1.ResourceState_RESOURCE_STATE_UPDATING:
+		*s = ResourceStateUpdating
+	case tcloudresourcev1.ResourceState_RESOURCE_STATE_UPDATE_FAILED:
+		*s = ResourceStateUpdateFailed
+	case tcloudresourcev1.ResourceState_RESOURCE_STATE_DELETING:
+		*s = ResourceStateDeleting
+	case tcloudresourcev1.ResourceState_RESOURCE_STATE_DELETE_FAILED:
+		*s = ResourceStateDeleteFailed
+	case tcloudresourcev1.ResourceState_RESOURCE_STATE_DELETED:
+		*s = ResourceStateDeleted
+	case tcloudresourcev1.ResourceState_RESOURCE_STATE_SUSPENDED:
+		*s = ResourceStateSuspended
+	case tcloudresourcev1.ResourceState_RESOURCE_STATE_EXPIRED:
+		*s = ResourceStateExpired
+	default:
+		*s = ""
+	}
+}
+
+// ToProto returns the Temporal Cloud resource state for the state. The CR
+// field is enum-validated, so unknown states cannot occur; they map to
+// unspecified.
+func (s ResourceState) ToProto() tcloudresourcev1.ResourceState {
+	switch s {
+	case ResourceStateActivating:
+		return tcloudresourcev1.ResourceState_RESOURCE_STATE_ACTIVATING
+	case ResourceStateActivationFailed:
+		return tcloudresourcev1.ResourceState_RESOURCE_STATE_ACTIVATION_FAILED
+	case ResourceStateActive:
+		return tcloudresourcev1.ResourceState_RESOURCE_STATE_ACTIVE
+	case ResourceStateUpdating:
+		return tcloudresourcev1.ResourceState_RESOURCE_STATE_UPDATING
+	case ResourceStateUpdateFailed:
+		return tcloudresourcev1.ResourceState_RESOURCE_STATE_UPDATE_FAILED
+	case ResourceStateDeleting:
+		return tcloudresourcev1.ResourceState_RESOURCE_STATE_DELETING
+	case ResourceStateDeleteFailed:
+		return tcloudresourcev1.ResourceState_RESOURCE_STATE_DELETE_FAILED
+	case ResourceStateDeleted:
+		return tcloudresourcev1.ResourceState_RESOURCE_STATE_DELETED
+	case ResourceStateSuspended:
+		return tcloudresourcev1.ResourceState_RESOURCE_STATE_SUSPENDED
+	case ResourceStateExpired:
+		return tcloudresourcev1.ResourceState_RESOURCE_STATE_EXPIRED
+	default:
+		return tcloudresourcev1.ResourceState_RESOURCE_STATE_UNSPECIFIED
+	}
+}
 
 const (
 	// ResourceStateActivating means the resource is being activated.
