@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	ctrlreqlog "github.com/temporalio/kube-temporal/pkg/controller/request/log"
 	"github.com/temporalio/kube-temporal/pkg/controller/requeue"
@@ -19,15 +18,7 @@ import (
 
 	tcloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
-)
-
-const (
-	// ReasonResourceDeleteFailed is the Stalled condition reason when Temporal
-	// Cloud failed to delete the Namespace.
-	ReasonResourceDeleteFailed = "ResourceDeleteFailed"
-
-	// deletePollInterval is how often to check on a delete in progress.
-	deletePollInterval = 15 * time.Second
+	ctrlerrors "github.com/temporalio/kube-temporal/pkg/controller/errors"
 )
 
 // ResourceDelete deletes the Temporal Cloud Namespace for the supplied
@@ -35,16 +26,17 @@ const (
 // the Namespace is gone, and an error while the delete is in progress or has
 // failed.
 //
-// TODO(Mechack): this relies on the kube-temporal Controller persisting the
-// status set here (State and AsyncOperationID) and treating nil as "remove
-// the finalizer" and a requeue error as "keep it and requeue". Today it passes
-// desired and drops the result on error. Remove this once that's fixed.
+// It works on a copy of `original` and returns that copy, with any status
+// changes (State, AsyncOperationID, conditions), as the latest state.
+// `original` is never mutated.
 //
-// TODO(Mechack): status.id and status.resourceVersion are set by the create path.
+// TODO(Mechack): status.id and status.resourceVersion are only set once the
+// create path is merged. Until then they're empty, so ResourceDelete treats
+// every Namespace as never created. Delete this TODO when it lands.
 func (r *Reconciler) ResourceDelete(
 	ctx context.Context,
-	desired types.Resource,
-) error {
+	original types.Resource,
+) (types.Resource, error) {
 	var err error
 	log := ctrlreqlog.FromContext(ctx)
 	exit := log.Trace("resource.delete")
@@ -52,40 +44,61 @@ func (r *Reconciler) ResourceDelete(
 		exit(err)
 	}()
 
-	policy, err := deletionPolicy(desired)
+	latest := original.DeepCopy()
+	cr := latest.CR().(*tcloudv1alpha1.Namespace)
+	if cr.Status.ID == "" {
+		// The user deleted the CR before the operator created a Namespace in
+		// Temporal Cloud, so there's nothing to delete.
+		return latest, nil
+	}
+
+	policy, err := deletionPolicy(latest)
 	if err != nil {
-		return err
+		return latest, err
 	}
 	if policy == tcloudcommon.DeletionPolicyRetain {
-		return nil
+		// TODO(Mechack): log that the Namespace is retained because of the
+		// retain deletion policy, once ctrlreqlog's log.Info no longer panics
+		// (ToContext never stores the request logger).
+		return latest, nil
 	}
 
-	cr := desired.CR().(*tcloudv1alpha1.Namespace)
-	if cr.Status.ID == "" {
-		// The operator never created a Namespace in Temporal Cloud.
-		return nil
-	}
-
-	tcc, err := r.CloudClientFor(ctx, desired)
+	tcc, err := r.CloudClientFor(ctx, latest)
 	if err != nil {
 		err = fmt.Errorf("failed getting tcloud client: %w", err)
-		return err
+		return latest, err
 	}
 
 	// We may have already called DeleteNamespace for this resource. If so,
 	// check whether the delete operation has finished.
 	switch {
 	case cr.Status.State == tcloudcommon.ResourceStateDeleted:
-		return nil
+		return latest, nil
+	case cr.Status.State == tcloudcommon.ResourceStateDeleteFailed:
+		// A previous delete failed. Don't send another one automatically.
+		err = ctrlerrors.NewTerminalError(fmt.Errorf(
+			"deleting Temporal Cloud namespace %s previously failed (async operation %s); not retrying",
+			cr.Status.ID, cr.Status.AsyncOperationID,
+		))
+		return latest, err
 	case cr.Status.State == tcloudcommon.ResourceStateDeleting &&
 		cr.Status.AsyncOperationID != "":
-		err = checkDelete(ctx, tcc, desired, cr)
-		return err
+		err = checkDelete(ctx, tcc, latest, cr)
+		return latest, err
+	case cr.Status.State == tcloudcommon.ResourceStateActivating,
+		cr.Status.State == tcloudcommon.ResourceStateUpdating:
+		// A create or update on this custom resource is still in flight, and Temporal Cloud rejects a
+		// delete until the Namespace is Active. Check again later.
+		err = requeue.NeededAfter(
+			fmt.Errorf(
+				"waiting for tcloud namespace %s to finish %s before deleting",
+				cr.Status.ID, cr.Status.State,
+			),
+			requeue.DefaultRequeueAfterDuration,
+		)
+		return latest, err
 	}
 
-	// TODO(Mechack): uses the CR's last recorded resourceVersion. If it's stale,
-	// Temporal Cloud rejects the delete with "resource version mismatch". Switch to
-	// the version from a fresh GetNamespace if that becomes a problem.
 	resp, err := tcc.DeleteNamespace(ctx, &tcloudservicev1.DeleteNamespaceRequest{
 		Namespace:       cr.Status.ID,
 		ResourceVersion: cr.Status.ResourceVersion,
@@ -93,16 +106,16 @@ func (r *Reconciler) ResourceDelete(
 	if status.Code(err) == codes.NotFound {
 		// Already gone.
 		err = nil
-		return nil
+		return latest, nil
 	}
 	if err != nil {
 		// The gRPC error includes Temporal Cloud's message, for example that
 		// deletion protection is enabled.
 		err = fmt.Errorf("failed deleting tcloud namespace %s: %w", cr.Status.ID, err)
 		condition.SetStalled(
-			desired, metav1.ConditionTrue, err.Error(), ReasonResourceDeleteFailed,
+			latest, metav1.ConditionTrue, err.Error(), tcloudcommon.ReasonResourceDeleteFailed,
 		)
-		return err
+		return latest, err
 	}
 
 	cr.Status.State = tcloudcommon.ResourceStateDeleting
@@ -112,19 +125,19 @@ func (r *Reconciler) ResourceDelete(
 			"deleting tcloud namespace %s (async operation %s)",
 			cr.Status.ID, cr.Status.AsyncOperationID,
 		),
-		deletePollInterval,
+		requeue.DefaultRequeueAfterDuration,
 	)
-	return err
+	return latest, err
 }
 
 // checkDelete checks the async operation for a delete already sent to
 // Temporal Cloud. It returns nil once the operation is fulfilled, a requeue
-// error while it is running, and an error with the Stalled condition set if
-// it failed.
+// error while it is running, and an error with the Stalled condition set on
+// latest if it failed.
 func checkDelete(
 	ctx context.Context,
 	tcc tcloudservicev1.CloudServiceClient,
-	desired types.Resource,
+	latest types.Resource,
 	cr *tcloudv1alpha1.Namespace,
 ) error {
 	resp, err := tcc.GetAsyncOperation(ctx, &tcloudservicev1.GetAsyncOperationRequest{
@@ -148,46 +161,33 @@ func checkDelete(
 			cr.Status.ID, op.GetId(), op.GetState(), op.GetFailureReason(),
 		)
 		condition.SetStalled(
-			desired, metav1.ConditionTrue, msg, ReasonResourceDeleteFailed,
+			latest, metav1.ConditionTrue, msg, tcloudcommon.ReasonResourceDeleteFailed,
 		)
-		return errors.New(msg)
+		cr.Status.State = tcloudcommon.ResourceStateDeleteFailed
+		return ctrlerrors.NewTerminalError(errors.New(msg))
 	default:
-		// Pending.
+		// Pending, in progress, or a state this SDK doesn't know.
 		return requeue.NeededAfter(
 			fmt.Errorf(
 				"waiting for tcloud async operation %s (%s)",
 				op.GetId(), op.GetState(),
 			),
-			deletePollInterval,
+			requeue.DefaultRequeueAfterDuration,
 		)
 	}
 }
 
 // deletionPolicy returns the subject's deletion policy from its
 // cloud.temporal.io/deletion-policy annotation. An unset annotation means
-// delete. Any other value is an error and never falls back to delete.
+// delete. An invalid value is an error and never falls back to delete.
 //
-// TODO(Mechack/10/26/2026): once adoption is supported, the default for an adopted
+// TODO(Mechack): once adoption is supported, the default for an adopted
 // Namespace becomes retain. An explicit delete is honored either way.
-func deletionPolicy(subject types.Resource) (string, error) {
-	key := tcloudcommon.AnnotationKeyDeletionPolicy
-	v, ok := annotation.Value(subject, key)
+func deletionPolicy(subject types.Resource) (tcloudcommon.DeletionPolicy, error) {
+	v, ok := annotation.Value(subject, tcloudcommon.AnnotationKeyDeletionPolicy)
 	if !ok {
-		// annotation.Value reports false when more than one key matches
-		// case-insensitively, so check that the key is really absent.
-		if annotation.HasKey(subject, key) {
-			return "", fmt.Errorf("more than one %s annotation", key)
-		}
 		return tcloudcommon.DeletionPolicyDelete, nil
 	}
-	switch v {
-	case tcloudcommon.DeletionPolicyDelete, tcloudcommon.DeletionPolicyRetain:
-		return v, nil
-	default:
-		return "", fmt.Errorf(
-			"invalid %s annotation %q: must be %q or %q",
-			key, v,
-			tcloudcommon.DeletionPolicyDelete, tcloudcommon.DeletionPolicyRetain,
-		)
-	}
+	p := tcloudcommon.DeletionPolicy(v)
+	return p, p.Validate()
 }
