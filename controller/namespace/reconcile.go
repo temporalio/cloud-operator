@@ -397,38 +397,6 @@ func tagsDiff(
 	return upsert, remove
 }
 
-// ResourceDelete deletes any managed external resources for the supplied
-// [types.Resource]. Note that the Reconciler does NOT need to remove the
-// finalizer on the associated [client.Object]. The Controller handles that.
-// All the Reconciler needs to do is delete any owned resources or
-// externally-managed resources associated with the supplied [types.Resource].
-//
-// It returns a copy of the supplied [types.Resource] with any status
-// mutations applied to the copy. `original` is not mutated.
-func (r *Reconciler) ResourceDelete(
-	ctx context.Context,
-	original types.Resource,
-) (types.Resource, error) {
-	var err error
-	log := ctrlreqlog.FromContext(ctx)
-	exit := log.Trace("resource.delete")
-	defer func() {
-		exit(err)
-	}()
-
-	latest := original.DeepCopy()
-
-	tcc, err := r.CloudClientFor(ctx, original)
-	if err != nil {
-		return latest, fmt.Errorf("failed getting tcloud client: %w", err)
-	}
-	_ = tcc
-
-	// TODO: call the Temporal Cloud API to delete the Namespace.
-
-	return latest, err
-}
-
 // compile-time check that Reconciler satisfies the [types.Reconciler]
 // contract.
 var _ types.Reconciler = (*Reconciler)(nil)
