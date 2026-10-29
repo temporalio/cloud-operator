@@ -9,13 +9,16 @@ Cloud.
   * [Create a Namespace](#create-a-namespace)
   * [Modify a Namespace](#modify-a-namespace)
   * [Delete a Namespace](#delete-a-namespace)
+    * [Delete the Temporal Cloud Namespace](#delete-the-temporal-cloud-namespace)
+    * [Keep the Temporal Cloud Namespace](#keep-the-temporal-cloud-namespace)
+    * [Delete a Namespace with delete protection](#delete-a-namespace-with-delete-protection)
 
 ## How it works
 
 Each Temporal Cloud resource is described by a Kubernetes custom resource in the
 `cloud.temporal.io` API group. When you apply one, the operator creates the
 resource in Temporal Cloud. When you change it, the operator updates the
-resource to match. The operator manages every resource through the connection
+resource to match. The operator manages every resource with the API key
 your cluster admin set up.
 
 | Kind | Temporal Cloud resource | Availability |
@@ -118,22 +121,71 @@ resource.
 
 ### Delete a Namespace
 
+What happens to the Temporal Cloud Namespace when you delete the resource
+depends on the resource's deletion policy and on Temporal Cloud's delete
+protection:
+
+| Resource | Result of `kubectl delete` |
+|---|---|
+| `cloud.temporal.io/deletion-policy: delete` (default, also used when the annotation is not set) | The operator deletes the Temporal Cloud Namespace, then Kubernetes removes the resource. |
+| `cloud.temporal.io/deletion-policy: retain` | Kubernetes removes the resource. The Temporal Cloud Namespace is kept. |
+| `spec.lifecycle.enableDeleteProtection: true` | Temporal Cloud rejects the delete. The resource and the Temporal Cloud Namespace both stay. |
+
+#### Delete the Temporal Cloud Namespace
+
+With the default `delete` policy, deleting the resource also deletes the
+Temporal Cloud Namespace. A resource without the
+`cloud.temporal.io/deletion-policy` annotation uses this policy:
+
 ```bash
 $ kubectl delete -n temporal-cloud namespaces.cloud.temporal.io payments-prod
+namespace.cloud.temporal.io "payments-prod" deleted
 ```
 
-When you delete the resource, the operator also deletes the Temporal Cloud
-Namespace. The resource stays in Kubernetes until Temporal Cloud has finished
-deleting it.
+The resource stays in Kubernetes, with `status.state` set to `Deleting`, until
+Temporal Cloud has finished deleting the Namespace. `kubectl delete` waits
+until then.
 
-To keep the Temporal Cloud Namespace, set the `cloud.temporal.io/deletion-policy`
-annotation to `retain` before you delete the resource:
+#### Keep the Temporal Cloud Namespace
 
-```bash
-$ kubectl annotate -n temporal-cloud namespaces.cloud.temporal.io payments-prod \
-    cloud.temporal.io/deletion-policy=retain
+To remove the resource but keep the Temporal Cloud Namespace, set the
+`cloud.temporal.io/deletion-policy` annotation to `retain`, as in
+[`examples/namespace-retain.yaml`](../examples/namespace-retain.yaml):
+
+```yaml
+metadata:
+  name: payments-retained
+  annotations:
+    cloud.temporal.io/deletion-policy: retain
 ```
 
-Temporal Cloud won't delete a Namespace that has deletion protection turned on.
-To delete it, set `spec.lifecycle.enableDeleteProtection` to `false` and apply
-the manifest first.
+When you delete the resource, Kubernetes removes it right away and the
+Temporal Cloud Namespace is left as is.
+
+#### Delete a Namespace with delete protection
+
+[`examples/namespace-delete-protection.yaml`](../examples/namespace-delete-protection.yaml)
+turns on Temporal Cloud's delete protection:
+
+```yaml
+spec:
+  lifecycle:
+    enableDeleteProtection: true
+```
+
+With delete protection on, deleting the Namespace is a two-step process:
+
+1. Turn off delete protection. Set `spec.lifecycle.enableDeleteProtection` to
+   `false` and apply the manifest:
+
+   ```bash
+   $ kubectl apply -n temporal-cloud -f examples/namespace-delete-protection.yaml
+   namespace.cloud.temporal.io/payments-protected configured
+   ```
+
+2. Delete the resource:
+
+   ```bash
+   $ kubectl delete -n temporal-cloud namespaces.cloud.temporal.io payments-protected
+   namespace.cloud.temporal.io "payments-protected" deleted
+   ```

@@ -5,44 +5,21 @@ the lifecycle management of Temporal Cloud resources. It lets you define
 Temporal Cloud resources declaratively as Kubernetes [Custom Resources][cr] and
 keep them in version control, alongside the applications that use them. This
 makes creating, changing and retiring those resources automated, auditable and
-easy to review. The operator continuously reconciles the state of Temporal Cloud
-resources with the desired state specified in the custom resources, reverting
-any out-of-band changes.
+easy to review.
 
 [cr]: https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/
 [k8s-operator]: https://kubernetes.io/docs/concepts/extend-kubernetes/operator/
 
 ## How It Works
 
-After installing the Temporal Cloud Operator, a user can create, modify or
-delete Temporal Cloud resources using the `kubectl` CLI.
+You describe each Temporal Cloud resource as a custom resource and apply it with
+`kubectl`. The operator watches these custom resources and creates, updates or
+deletes the matching resources in Temporal Cloud. It keeps reconciling them, so
+changes made outside Kubernetes are reverted. For an example, see [Create your
+first resource](#create-your-first-resource).
 
-For example, to create a new Temporal Cloud Namespace called `my-org-namespace`,
-you might do:
-
-```bash
-$ kubectl apply -f - <<EOF
-apiVersion: cloud.temporal.io/v1alpha1
-kind: Namespace
-metadata:
-  name: my-org-namespace
-  namespace: temporal-cloud  # NOTE: this is the Kubernetes Namespace, not the Temporal Cloud Namespace.
-spec:
-  replicas:
-    - region: aws-us-west-2
-  retentionDays: 30
-  apiKeyAuth:
-    enabled: true
-EOF
-```
-
-Temporal Cloud Operator watches the Kubernetes API for CRs that represent
-Temporal Cloud resources and performs all the necessary actions to manage the
-lifecycle of those Temporal Cloud resources associated with the Custom Resource.
-
-If you are familiar with projects like [Crossplane][crossplane] or [AWS
-Controllers for Kubernetes][ack] (ACK), this is the same concept applied to
-Temporal Cloud resources.
+If you are familiar with [Crossplane][crossplane] or [AWS Controllers for
+Kubernetes][ack] (ACK), this is the same concept applied to Temporal Cloud.
 
 [crossplane]: https://www.crossplane.io/
 [ack]: https://aws-controllers-k8s.github.io/docs/intro/
@@ -54,44 +31,77 @@ Temporal Cloud resources.
 - Kubernetes cluster
 - Temporal Cloud API key
 
-### Quickstart
+### Installation
 
 ```bash
-export TCO_VERSION=v0.1.0
+export TCO_VERSION=main
 export TEMPORAL_CLOUD_API_KEY=<your API key>
 TCO_REPO=https://github.com/temporalio/cloud-operator
 
 # 1. Install the operator
 kubectl apply -k "$TCO_REPO//deploy/kustomize/default?ref=$TCO_VERSION"
-kubectl wait --for=condition=Established --timeout=60s crd/clusterconnections.cloud.temporal.io
 
-# 2. Store the API key
+# 2. Store the API key. The operator uses it to connect to Temporal Cloud.
 kubectl create secret generic temporal-cloud-api-key \
   -n temporal-cloud-operator --from-literal=apikey="$TEMPORAL_CLOUD_API_KEY"
 
-# 3. Connect the operator to Temporal Cloud
-kubectl apply -k "$TCO_REPO//deploy/kustomize/overlays/default-connection?ref=$TCO_VERSION"
-
-# 4. Check the connection
-kubectl -n temporal-cloud-operator rollout status deployment/temporal-cloud-operator
-kubectl get clusterconnections
+# 3. Wait for the operator (needs the `temporal-cloud-api-key` Secret to start)
+kubectl -n temporal-cloud-operator rollout status deployment/temporal-cloud-operator --timeout=180s
 ```
 
-`kubectl get clusterconnections` should show the `default` connection with
-`READY` set to `True`.
+### Create your first resource
+
+```bash
+# Create a Temporal Cloud Namespace and wait for it to become Active
+kubectl apply -f - <<EOF
+apiVersion: cloud.temporal.io/v1alpha1
+kind: Namespace
+metadata:
+  name: my-first-namespace
+spec:
+  replicas:
+    - region: aws-us-west-2
+  retentionDays: 30
+  apiKeyAuth:
+    enabled: true
+EOF
+
+kubectl wait namespaces.cloud.temporal.io/my-first-namespace \
+  --for=jsonpath='{.status.state}'=Active --timeout=10m
+```
+
+To see the Namespace's details, including its Temporal Cloud ID, run:
+
+```console
+$ kubectl describe namespaces.cloud.temporal.io my-first-namespace
+Name:         my-first-namespace
+API Version:  cloud.temporal.io/v1alpha1
+Kind:         Namespace
+...
+Spec:
+  API Key Auth:
+    Enabled:  true
+  Replicas:
+    Region:        aws-us-west-2
+  Retention Days:  30
+Status:
+  ...
+  Id:     my-first-namespace.<account-id>
+  State:  Active
+```
 
 ### Next steps
 
-* To create your first cloud resource, see [Managing Temporal Cloud
-  resources](docs/resources.md).
-* For additional installation details, including connections, upgrades and
-  uninstalling, see [Installing the Temporal Cloud Operator](docs/install.md).
+* For more details on managing the lifecycle of Temporal Cloud resources,
+  including deletion, see [Managing Temporal Cloud resources](docs/resources.md).
+* For additional installation details, including upgrades and uninstalling,
+  see [Installing the Temporal Cloud Operator](docs/install.md).
 
 ## Documentation
 
 | Document | Description |
 |---|---|
-| [Installing the Temporal Cloud Operator](docs/install.md) | Installation details, connections, upgrades and uninstalling. |
+| [Installing the Temporal Cloud Operator](docs/install.md) | Installation details, upgrades and uninstalling. |
 | [Managing Temporal Cloud resources](docs/resources.md) | Create, change and delete Temporal Cloud resources. |
 | [Development and testing](docs/development.md) | How contributors build and run the operator locally, set up the kind test cluster and Temporal Cloud test account, and run unit and end-to-end tests. |
 

@@ -1,0 +1,18 @@
+apiVersion: cloud.temporal.io/v1alpha1
+kind: Namespace
+metadata:
+  name: payments-retained
+  annotations:
+    cloud.temporal.io/deletion-policy: retain
+spec:
+  tags:
+    environment: production
+    team: payments
+  replicas:
+    - region: aws-us-west-2
+  retentionDays: 30
+  apiKeyAuth:
+    enabled: true
+  capacity:
+    onDemand: {}
+  description: Payment workflows kept in Temporal Cloud on delete.

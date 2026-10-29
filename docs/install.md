@@ -24,25 +24,21 @@ Pick a release from the [releases
 page](https://github.com/temporalio/cloud-operator/releases) and install it:
 
 ```bash
-export TCO_VERSION=v0.1.0
+export TCO_VERSION=<release>
 TCO_REPO=https://github.com/temporalio/cloud-operator
 
 kubectl apply -k "$TCO_REPO//deploy/kustomize/default?ref=$TCO_VERSION"
-kubectl wait --for=condition=Established --timeout=60s \
-  crd/clusterconnections.cloud.temporal.io \
-  crd/namespaces.cloud.temporal.io
 ```
 
 This creates the `cloud.temporal.io` CustomResourceDefinitions and the
 `temporal-cloud-operator` Kubernetes Namespace, with the operator's
-ServiceAccount, RBAC rules and Deployment. At this point the operator is
-running, but it isn't connected to Temporal Cloud yet. The next two steps store
-the API key in a Secret and connect the operator to Temporal Cloud.
+ServiceAccount, RBAC rules and Deployment. The operator doesn't start until
+the API key Secret from the next step exists.
 
 ### 2. Store the API key
 
-Create a Secret to store the API key, so that the connection resource in the
-next step can read from it.
+The operator reads the Temporal Cloud API key from the `apikey` entry of the
+`temporal-cloud-api-key` Secret when it starts:
 
 ```bash
 export TEMPORAL_CLOUD_API_KEY=<your API key>
@@ -56,58 +52,26 @@ instead, for example with [External Secrets](https://external-secrets.io/), or t
 generate it from your own kustomization (see [Manage the install with your own
 kustomization](#manage-the-install-with-your-own-kustomization)).
 
-### 3. Connect the operator to Temporal Cloud
-
-A connection tells the operator how to connect to the Temporal Cloud Ops API
-and where to find the API key. The following creates a default connection
-the operator uses for every resource. Support for multiple connections is
-planned, to enable one cluster manage more than one Temporal Cloud account,
-such as production and staging, or give each team its own service account
-and API key.
+### 3. Wait for the operator
 
 ```bash
-kubectl apply -k "$TCO_REPO//deploy/kustomize/overlays/default-connection?ref=$TCO_VERSION"
+kubectl -n temporal-cloud-operator rollout status deployment/temporal-cloud-operator --timeout=180s
 ```
 
-The `default-connection` overlay applies the same install again, plus a
-ClusterConnection named `default`:
-
-```yaml
-apiVersion: cloud.temporal.io/v1alpha1
-kind: ClusterConnection
-metadata:
-  name: default
-spec:
-  hostPort: saas-api.tmprl.cloud:443
-  credentials:
-    apiKey:
-      secretRef:
-        name: temporal-cloud-api-key
-        key: apikey
-```
-
-### 4. Check the connection
-
-```bash
-$ kubectl -n temporal-cloud-operator rollout status deployment/temporal-cloud-operator
-$ kubectl get clusterconnections
-NAME      ENDPOINT                   READY   AGE
-default   saas-api.tmprl.cloud:443   True    10s
-```
-
-`READY` is `True` once the operator has read the API key.
+To check that the operator can reach Temporal Cloud, [create your first
+resource](../README.md#create-your-first-resource).
 
 ### Manage the install with your own kustomization
 
-To add your own patches, write a kustomization that uses the `default-connection`
-overlay. It can also generate the API key Secret with `secretGenerator`:
+To add your own patches, write a kustomization that uses the operator's
+install. It can also generate the API key Secret with `secretGenerator`:
 
 ```yaml
 # kustomization.yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-- https://github.com/temporalio/cloud-operator//deploy/kustomize/overlays/default-connection?ref=v0.1.0
+- https://github.com/temporalio/cloud-operator//deploy/kustomize/default?ref=<release>
 secretGenerator:
 - name: temporal-cloud-api-key
   namespace: temporal-cloud-operator
@@ -117,7 +81,7 @@ secretGenerator:
     disableNameSuffixHash: true
 ```
 
-Apply it with `kubectl apply -k .` once the CustomResourceDefinitions exist.
+Apply it with `kubectl apply -k .`.
 
 ## Upgrade
 
@@ -127,7 +91,6 @@ Apply the new release the same way it was installed:
 export TCO_VERSION=<new release>
 
 kubectl apply -k "$TCO_REPO//deploy/kustomize/default?ref=$TCO_VERSION"
-kubectl apply -k "$TCO_REPO//deploy/kustomize/overlays/default-connection?ref=$TCO_VERSION"
 ```
 
 Since the Secret isn't part of the install, the upgrade will leave it unchanged.
@@ -152,10 +115,9 @@ Since the Secret isn't part of the install, the upgrade will leave it unchanged.
    kubectl delete namespaces.cloud.temporal.io --all --all-namespaces
    ```
 
-3. Remove the operator, the default connection, the CustomResourceDefinitions
-   and the `temporal-cloud-operator` Kubernetes Namespace, including the API key
-   Secret:
+3. Remove the operator, the CustomResourceDefinitions and the
+   `temporal-cloud-operator` Kubernetes Namespace, including the API key Secret:
 
    ```bash
-   kubectl delete -k "$TCO_REPO//deploy/kustomize/overlays/default-connection?ref=$TCO_VERSION"
+   kubectl delete -k "$TCO_REPO//deploy/kustomize/default?ref=$TCO_VERSION"
    ```
