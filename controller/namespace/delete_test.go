@@ -12,10 +12,13 @@ import (
 	"github.com/temporalio/kube-temporal/pkg/kube/condition"
 	"github.com/temporalio/kube-temporal/pkg/types"
 	tcloudservicev1 "go.temporal.io/cloud-sdk/api/cloudservice/v1"
+	tcloudnamespacev1 "go.temporal.io/cloud-sdk/api/namespace/v1"
 	operationv1 "go.temporal.io/cloud-sdk/api/operation/v1"
+	tcloudresourcev1 "go.temporal.io/cloud-sdk/api/resource/v1"
 	tcclient "go.temporal.io/cloud-sdk/cloudclient"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	tcloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
@@ -26,9 +29,12 @@ import (
 )
 
 const (
-	deleteTestName      = "tmprl-ns"
-	deleteTestID        = "tmprl-ns.acct"
-	deleteTestRV        = "rv-1"
+	deleteTestName = "tmprl-ns"
+	deleteTestID   = "tmprl-ns.acct"
+	deleteTestRV   = "rv-1"
+	// deleteTestCloudRV is the resource version Temporal Cloud reports. It
+	// differs from the CR's saved one so tests can tell which was sent.
+	deleteTestCloudRV   = "rv-cloud"
 	deleteTestAsyncOpID = "async-op-1"
 )
 
@@ -69,12 +75,23 @@ type deleteCase struct {
 	// protected sets spec.lifecycle.enableDeleteProtection.
 	protected bool
 
+	// cloudNS is the namespace GetNamespace returns. Nil means an Active,
+	// unprotected namespace.
+	cloudNS    *tcloudnamespacev1.Namespace
+	getErr     error
+	updateErr  error
 	deleteResp *tcloudservicev1.DeleteNamespaceResponse
 	deleteErr  error
 	asyncOp    *operationv1.AsyncOperation
 
+	// expGetNamespace is whether GetNamespace is called (once) with the
+	// status ID.
+	expGetNamespace bool
+	// expUpdate is whether UpdateNamespace is called (once) to turn off
+	// deletion protection, with Temporal Cloud's resource version.
+	expUpdate bool
 	// expDelete is whether DeleteNamespace is called (once) with the status
-	// ID and resource version.
+	// ID and Temporal Cloud's resource version.
 	expDelete bool
 	// expGetAsyncOp is whether GetAsyncOperation is called (once) with the
 	// status async operation ID.
@@ -99,21 +116,23 @@ func TestReconciler_ResourceDelete_DeletionPolicy(t *testing.T) {
 			status: statusActive,
 		},
 		{
-			name:       "no annotation defaults to delete",
-			status:     statusActive,
-			deleteResp: deleteAccepted,
-			expDelete:  true,
-			expRequeue: true,
-			expStatus:  &statusDeleting,
+			name:            "no annotation defaults to delete",
+			status:          statusActive,
+			deleteResp:      deleteAccepted,
+			expGetNamespace: true,
+			expDelete:       true,
+			expRequeue:      true,
+			expStatus:       &statusDeleting,
 		},
 		{
-			name:       "delete calls DeleteNamespace",
-			policy:     "delete",
-			status:     statusActive,
-			deleteResp: deleteAccepted,
-			expDelete:  true,
-			expRequeue: true,
-			expStatus:  &statusDeleting,
+			name:            "delete calls DeleteNamespace",
+			policy:          "delete",
+			status:          statusActive,
+			deleteResp:      deleteAccepted,
+			expGetNamespace: true,
+			expDelete:       true,
+			expRequeue:      true,
+			expStatus:       &statusDeleting,
 		},
 		{
 			name:   "capitalized retain makes no cloud calls",
@@ -157,28 +176,44 @@ func TestReconciler_ResourceDelete_NoStatusID(t *testing.T) {
 func TestReconciler_ResourceDelete_SendDelete(t *testing.T) {
 	cases := []deleteCase{
 		{
-			name:       "success sets deleting and requeues",
-			status:     statusActive,
-			deleteResp: deleteAccepted,
-			expDelete:  true,
-			expRequeue: true,
-			expStatus:  &statusDeleting,
+			name:            "success sets deleting and requeues",
+			status:          statusActive,
+			deleteResp:      deleteAccepted,
+			expGetNamespace: true,
+			expDelete:       true,
+			expRequeue:      true,
+			expStatus:       &statusDeleting,
 		},
 		{
-			name:      "NotFound means already gone",
-			status:    statusActive,
-			deleteErr: status.Error(codes.NotFound, "namespace not found"),
-			expDelete: true,
+			name:            "NotFound means already gone",
+			status:          statusActive,
+			deleteErr:       status.Error(codes.NotFound, "namespace not found"),
+			expGetNamespace: true,
+			expDelete:       true,
 		},
 		{
 			name:   "FailedPrecondition sets stalled",
 			status: statusActive,
 			deleteErr: status.Error(
-				codes.FailedPrecondition, "delete protection is enabled",
+				codes.FailedPrecondition, "namespace has nexus endpoints",
 			),
-			expDelete:  true,
-			expErr:     "delete protection is enabled",
-			expStalled: "delete protection is enabled",
+			expGetNamespace: true,
+			expDelete:       true,
+			expErr:          "namespace has nexus endpoints",
+			expStalled:      "namespace has nexus endpoints",
+		},
+		{
+			name:            "GetNamespace NotFound releases the CR",
+			status:          statusActive,
+			getErr:          status.Error(codes.NotFound, "namespace not found"),
+			expGetNamespace: true,
+		},
+		{
+			name:            "GetNamespace error returns a plain error",
+			status:          statusActive,
+			getErr:          status.Error(codes.PermissionDenied, "api key lacks access"),
+			expGetNamespace: true,
+			expErr:          "api key lacks access",
 		},
 	}
 	for _, tc := range cases {
@@ -235,7 +270,7 @@ func TestReconciler_ResourceDelete_DeleteFailed(t *testing.T) {
 func TestReconciler_ResourceDelete_DeleteProtection(t *testing.T) {
 	cases := []deleteCase{
 		{
-			name:       "delete policy sets stalled and requeues without cloud calls",
+			name:       "spec on sets stalled and requeues without cloud calls",
 			policy:     "delete",
 			status:     statusActive,
 			protected:  true,
@@ -244,18 +279,50 @@ func TestReconciler_ResourceDelete_DeleteProtection(t *testing.T) {
 			expStalled: "enableDeleteProtection",
 		},
 		{
-			name:      "retain policy makes no cloud calls",
+			name:      "spec on with retain policy makes no cloud calls",
 			policy:    "retain",
 			status:    statusActive,
 			protected: true,
 		},
 		{
-			name:          "delete in progress is still polled",
+			name:          "spec on with delete in progress is still polled",
 			status:        statusDeleting,
 			protected:     true,
 			asyncOp:       asyncOperation(operationv1.AsyncOperation_STATE_PENDING, ""),
 			expGetAsyncOp: true,
 			expRequeue:    true,
+		},
+		{
+			name:            "cloud on with spec off turns protection off and requeues",
+			status:          statusActive,
+			cloudNS:         cloudNamespace(tcloudresourcev1.ResourceState_RESOURCE_STATE_ACTIVE, true),
+			expGetNamespace: true,
+			expUpdate:       true,
+			expRequeue:      true,
+		},
+		{
+			name:    "stale protection update requeues",
+			status:  statusActive,
+			cloudNS: cloudNamespace(tcloudresourcev1.ResourceState_RESOURCE_STATE_ACTIVE, true),
+			updateErr: status.Error(
+				codes.FailedPrecondition, "resource version mismatch",
+			),
+			expGetNamespace: true,
+			expUpdate:       true,
+			expErr:          "resource version mismatch",
+			expRequeue:      true,
+		},
+		{
+			name:    "invalid protection update is terminal",
+			status:  statusActive,
+			cloudNS: cloudNamespace(tcloudresourcev1.ResourceState_RESOURCE_STATE_ACTIVE, true),
+			updateErr: status.Error(
+				codes.InvalidArgument, "bad spec",
+			),
+			expGetNamespace: true,
+			expUpdate:       true,
+			expErr:          "bad spec",
+			expTerminal:     true,
 		},
 	}
 	for _, tc := range cases {
@@ -313,7 +380,7 @@ func runDeleteCase(t *testing.T, tc deleteCase) {
 	require.Equal(expStatus, gotCR.Status.ResourceStatus)
 
 	requireStalled(t, got, tc.expStalled)
-	cloud.requireCalls(t, tc.expDelete, tc.expGetAsyncOp)
+	cloud.requireCalls(t, tc)
 }
 
 // newDeleteTestNamespace returns a Namespace CR with the supplied
@@ -348,6 +415,28 @@ func statusWithState(s tcloudcommon.ResourceState) tcloudcommon.ResourceStatus {
 	return rs
 }
 
+// cloudNamespace returns the namespace Temporal Cloud reports, in the
+// supplied state and with deletion protection on or off. Its spec has other
+// settings too, so tests can check that only protection changes.
+func cloudNamespace(
+	state tcloudresourcev1.ResourceState,
+	protected bool,
+) *tcloudnamespacev1.Namespace {
+	return &tcloudnamespacev1.Namespace{
+		Namespace:       deleteTestID,
+		ResourceVersion: deleteTestCloudRV,
+		State:           state,
+		Spec: &tcloudnamespacev1.NamespaceSpec{
+			Name:          deleteTestName,
+			Regions:       []string{"aws-us-east-1"},
+			RetentionDays: 30,
+			Lifecycle: &tcloudnamespacev1.LifecycleSpec{
+				EnableDeleteProtection: protected,
+			},
+		},
+	}
+}
+
 // asyncOperation returns the test async operation in the supplied state.
 func asyncOperation(
 	state operationv1.AsyncOperation_State,
@@ -367,14 +456,15 @@ type deleteFakeCloud struct {
 	client *tcclient.Client
 
 	mu                sync.Mutex
-	getNamespace      int
+	getNamespace      []*tcloudservicev1.GetNamespaceRequest
+	updateNamespace   []*tcloudservicev1.UpdateNamespaceRequest
 	deleteNamespace   []*tcloudservicev1.DeleteNamespaceRequest
 	getAsyncOperation []*tcloudservicev1.GetAsyncOperationRequest
 }
 
 // startDeleteFakeCloud starts a fake Temporal Cloud server that returns tc's
-// DeleteNamespace and GetAsyncOperation responses, and stops it when the test
-// ends.
+// GetNamespace, UpdateNamespace, DeleteNamespace and GetAsyncOperation
+// responses, and stops it when the test ends.
 func startDeleteFakeCloud(t *testing.T, tc deleteCase) *deleteFakeCloud {
 	t.Helper()
 	require := require.New(t)
@@ -382,12 +472,32 @@ func startDeleteFakeCloud(t *testing.T, tc deleteCase) *deleteFakeCloud {
 	c := &deleteFakeCloud{}
 	srv, err := fakeserver.New(
 		fakeserver.WithGetNamespace(func(
-			context.Context, *tcloudservicev1.GetNamespaceRequest,
+			_ context.Context, req *tcloudservicev1.GetNamespaceRequest,
 		) (*tcloudservicev1.GetNamespaceResponse, error) {
 			c.mu.Lock()
 			defer c.mu.Unlock()
-			c.getNamespace++
-			return &tcloudservicev1.GetNamespaceResponse{}, nil
+			c.getNamespace = append(c.getNamespace, req)
+			if tc.getErr != nil {
+				return nil, tc.getErr
+			}
+			ns := tc.cloudNS
+			if ns == nil {
+				ns = cloudNamespace(
+					tcloudresourcev1.ResourceState_RESOURCE_STATE_ACTIVE, false,
+				)
+			}
+			return &tcloudservicev1.GetNamespaceResponse{Namespace: ns}, nil
+		}),
+		fakeserver.WithUpdateNamespace(func(
+			_ context.Context, req *tcloudservicev1.UpdateNamespaceRequest,
+		) (*tcloudservicev1.UpdateNamespaceResponse, error) {
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			c.updateNamespace = append(c.updateNamespace, req)
+			if tc.updateErr != nil {
+				return nil, tc.updateErr
+			}
+			return &tcloudservicev1.UpdateNamespaceResponse{}, nil
 		}),
 		fakeserver.WithDeleteNamespace(func(
 			_ context.Context, req *tcloudservicev1.DeleteNamespaceRequest,
@@ -424,26 +534,42 @@ func startDeleteFakeCloud(t *testing.T, tc deleteCase) *deleteFakeCloud {
 }
 
 // requireCalls checks which Temporal Cloud calls the server received.
-// GetNamespace is never expected.
-func (c *deleteFakeCloud) requireCalls(
-	t *testing.T,
-	expDelete bool,
-	expGetAsyncOp bool,
-) {
+func (c *deleteFakeCloud) requireCalls(t *testing.T, tc deleteCase) {
 	t.Helper()
 	require := require.New(t)
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	require.Zero(c.getNamespace)
-	if expDelete {
+	if tc.expGetNamespace {
+		require.Len(c.getNamespace, 1)
+		require.Equal(deleteTestID, c.getNamespace[0].GetNamespace())
+	} else {
+		require.Empty(c.getNamespace)
+	}
+	if tc.expUpdate {
+		require.Len(c.updateNamespace, 1)
+		req := c.updateNamespace[0]
+		require.Equal(deleteTestID, req.GetNamespace())
+		require.Equal(deleteTestCloudRV, req.GetResourceVersion())
+		// Only deletion protection changes; the rest is Temporal Cloud's
+		// spec as read.
+		exp := proto.Clone(tc.cloudNS.GetSpec()).(*tcloudnamespacev1.NamespaceSpec)
+		exp.Lifecycle.EnableDeleteProtection = false
+		require.True(
+			proto.Equal(exp, req.GetSpec()),
+			"unexpected update spec: %v", req.GetSpec(),
+		)
+	} else {
+		require.Empty(c.updateNamespace)
+	}
+	if tc.expDelete {
 		require.Len(c.deleteNamespace, 1)
 		require.Equal(deleteTestID, c.deleteNamespace[0].GetNamespace())
-		require.Equal(deleteTestRV, c.deleteNamespace[0].GetResourceVersion())
+		require.Equal(deleteTestCloudRV, c.deleteNamespace[0].GetResourceVersion())
 	} else {
 		require.Empty(c.deleteNamespace)
 	}
-	if expGetAsyncOp {
+	if tc.expGetAsyncOp {
 		require.Len(c.getAsyncOperation, 1)
 		require.Equal(
 			deleteTestAsyncOpID, c.getAsyncOperation[0].GetAsyncOperationId(),

@@ -16,6 +16,7 @@ type fakeServer struct {
 
 	getNamespaceFunc      GetNamespaceFunc
 	getNamespacesFunc     GetNamespacesFunc
+	updateNamespaceFunc   UpdateNamespaceFunc
 	deleteNamespaceFunc   DeleteNamespaceFunc
 	getAsyncOperationFunc GetAsyncOperationFunc
 }

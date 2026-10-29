@@ -12,9 +12,11 @@ import (
 	"github.com/temporalio/kube-temporal/pkg/kube/condition"
 	"github.com/temporalio/kube-temporal/pkg/types"
 	tcloudservicev1 "go.temporal.io/cloud-sdk/api/cloudservice/v1"
+	tcloudnamespacev1 "go.temporal.io/cloud-sdk/api/namespace/v1"
 	operationv1 "go.temporal.io/cloud-sdk/api/operation/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	tcloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
@@ -126,9 +128,32 @@ func (r *Reconciler) ResourceDelete(
 		return latest, err
 	}
 
+	// Read the namespace so deletion protection in Temporal Cloud can be made
+	// to match the CR, and so the delete uses the current resource version.
+	getResp, err := tcc.GetNamespace(ctx, &tcloudservicev1.GetNamespaceRequest{
+		Namespace: cr.Status.ID,
+	})
+	if status.Code(err) == codes.NotFound {
+		// Already gone.
+		err = nil
+		return latest, nil
+	}
+	if err != nil {
+		err = fmt.Errorf("failed getting tcloud namespace %s: %w", cr.Status.ID, err)
+		return latest, err
+	}
+	tns := getResp.GetNamespace()
+
+	if tns.GetSpec().GetLifecycle().GetEnableDeleteProtection() {
+		// The CR's spec says protection is off, so make
+		// Temporal Cloud match it before deleting.
+		err = disableDeleteProtection(ctx, tcc, tns)
+		return latest, err
+	}
+
 	resp, err := tcc.DeleteNamespace(ctx, &tcloudservicev1.DeleteNamespaceRequest{
 		Namespace:       cr.Status.ID,
-		ResourceVersion: cr.Status.ResourceVersion,
+		ResourceVersion: tns.GetResourceVersion(),
 	})
 	if status.Code(err) == codes.NotFound {
 		// Already gone.
@@ -155,6 +180,36 @@ func (r *Reconciler) ResourceDelete(
 		requeue.DefaultRequeueAfterDuration,
 	)
 	return latest, err
+}
+
+// disableDeleteProtection turns off deletion protection on the
+// Temporal Cloud Namespace. It sends the Namespace's current spec from
+// Temporal Cloud with only that setting changed, so other pending changes to
+// the CR's spec aren't pushed right before a delete. On success it returns a
+// requeue error, and the next reconcile re-reads the Namespace rather than
+// tracking the update's async operation.
+func disableDeleteProtection(
+	ctx context.Context,
+	tcc tcloudservicev1.CloudServiceClient,
+	tns *tcloudnamespacev1.Namespace,
+) error {
+	spec := proto.Clone(tns.GetSpec()).(*tcloudnamespacev1.NamespaceSpec)
+	spec.GetLifecycle().EnableDeleteProtection = false
+	_, err := tcc.UpdateNamespace(ctx, &tcloudservicev1.UpdateNamespaceRequest{
+		Namespace:       tns.GetNamespace(),
+		Spec:            spec,
+		ResourceVersion: tns.GetResourceVersion(),
+	})
+	if err != nil {
+		return cloudCallError("turning off tcloud namespace deletion protection", err)
+	}
+	return requeue.NeededAfter(
+		fmt.Errorf(
+			"turned off deletion protection on tcloud namespace %s, waiting for update to complete",
+			tns.GetNamespace(),
+		),
+		requeue.DefaultRequeueAfterDuration,
+	)
 }
 
 // checkDelete checks the async operation for a delete already sent to
