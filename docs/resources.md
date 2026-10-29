@@ -129,7 +129,7 @@ protection:
 |---|---|
 | `cloud.temporal.io/deletion-policy: delete` (default, also used when the annotation is not set) | The operator deletes the Temporal Cloud Namespace, then Kubernetes removes the resource. |
 | `cloud.temporal.io/deletion-policy: retain` | Kubernetes removes the resource. The Temporal Cloud Namespace is kept. |
-| `spec.lifecycle.enableDeleteProtection: true` | Temporal Cloud rejects the delete. The resource and the Temporal Cloud Namespace both stay. |
+| `spec.lifecycle.enableDeleteProtection: true` | The operator keeps the resource and the Temporal Cloud Namespace until you turn off delete protection. See [Delete a Namespace with delete protection](#delete-a-namespace-with-delete-protection). |
 
 #### Delete the Temporal Cloud Namespace
 
@@ -189,3 +189,16 @@ With delete protection on, deleting the Namespace is a two-step process:
    $ kubectl delete -n temporal-cloud namespaces.cloud.temporal.io payments-protected
    namespace.cloud.temporal.io "payments-protected" deleted
    ```
+
+**Note**: If you delete the resource before turning off delete protection, the
+operator doesn't delete the Temporal Cloud Namespace. It marks the delete as failed (a `Stalled` condition with
+reason `ResourceDeleteFailed`) and keeps retrying. To let the delete go
+through, set `spec.lifecycle.enableDeleteProtection` to `false`. On the next
+reconcile, the operator deletes the Temporal Cloud Namespace and removes the
+resource:
+
+```bash
+$ kubectl patch -n temporal-cloud namespaces.cloud.temporal.io payments-protected \
+    --type=merge -p '{"spec":{"lifecycle":{"enableDeleteProtection":false}}}'
+namespace.cloud.temporal.io/payments-protected patched
+```
