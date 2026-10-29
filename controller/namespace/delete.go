@@ -108,6 +108,24 @@ func (r *Reconciler) ResourceDelete(
 		return latest, err
 	}
 
+	// Temporal Cloud rejects deleting a protected Namespace, so no need to send the
+	// delete request. Changing the spec triggers a reconcile, but switching the
+	// annotation to retain doesn't, so requeue to pick that up.
+	if cr.Spec.Lifecycle != nil && cr.Spec.Lifecycle.EnableDeleteProtection {
+		msg := fmt.Sprintf(
+			"tcloud namespace %s has deletion protection enabled; set "+
+				"spec.lifecycle.enableDeleteProtection to false to delete it, "+
+				"or set the %s annotation to %q to keep it",
+			cr.Status.ID, tcloudcommon.AnnotationKeyDeletionPolicy,
+			tcloudcommon.DeletionPolicyRetain,
+		)
+		condition.SetStalled(
+			latest, metav1.ConditionTrue, msg, tcloudcommon.ReasonResourceDeleteFailed,
+		)
+		err = requeue.NeededAfter(errors.New(msg), requeue.DefaultRequeueAfterDuration)
+		return latest, err
+	}
+
 	resp, err := tcc.DeleteNamespace(ctx, &tcloudservicev1.DeleteNamespaceRequest{
 		Namespace:       cr.Status.ID,
 		ResourceVersion: cr.Status.ResourceVersion,

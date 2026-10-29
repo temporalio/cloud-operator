@@ -66,6 +66,8 @@ type deleteCase struct {
 	// annotation.
 	policy string
 	status tcloudcommon.ResourceStatus
+	// protected sets spec.lifecycle.enableDeleteProtection.
+	protected bool
 
 	deleteResp *tcloudservicev1.DeleteNamespaceResponse
 	deleteErr  error
@@ -230,6 +232,39 @@ func TestReconciler_ResourceDelete_DeleteFailed(t *testing.T) {
 	})
 }
 
+func TestReconciler_ResourceDelete_DeleteProtection(t *testing.T) {
+	cases := []deleteCase{
+		{
+			name:       "delete policy sets stalled and requeues without cloud calls",
+			policy:     "delete",
+			status:     statusActive,
+			protected:  true,
+			expErr:     "enableDeleteProtection",
+			expRequeue: true,
+			expStalled: "enableDeleteProtection",
+		},
+		{
+			name:      "retain policy makes no cloud calls",
+			policy:    "retain",
+			status:    statusActive,
+			protected: true,
+		},
+		{
+			name:          "delete in progress is still polled",
+			status:        statusDeleting,
+			protected:     true,
+			asyncOp:       asyncOperation(operationv1.AsyncOperation_STATE_PENDING, ""),
+			expGetAsyncOp: true,
+			expRequeue:    true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(tt *testing.T) {
+			runDeleteCase(tt, tc)
+		})
+	}
+}
+
 func TestReconciler_ResourceDelete_InFlightStates(t *testing.T) {
 	cases := []deleteCase{
 		{
@@ -257,7 +292,7 @@ func runDeleteCase(t *testing.T, tc deleteCase) {
 	t.Helper()
 	require := require.New(t)
 
-	tns := newDeleteTestNamespace(tc.policy, tc.status)
+	tns := newDeleteTestNamespace(tc.policy, tc.status, tc.protected)
 	cloud := startDeleteFakeCloud(t, tc)
 	r := newDeleteTestReconciler(cloud, tns)
 
@@ -282,10 +317,12 @@ func runDeleteCase(t *testing.T, tc deleteCase) {
 }
 
 // newDeleteTestNamespace returns a Namespace CR with the supplied
-// deletion-policy annotation (none if empty) and Temporal Cloud status.
+// deletion-policy annotation (none if empty), Temporal Cloud status and
+// deletion protection.
 func newDeleteTestNamespace(
 	policy string,
 	rs tcloudcommon.ResourceStatus,
+	protected bool,
 ) *tcloudv1alpha1.Namespace {
 	tns := &tcloudv1alpha1.Namespace{}
 	tns.Name = deleteTestName
@@ -296,6 +333,11 @@ func newDeleteTestNamespace(
 		}
 	}
 	tns.Status.ResourceStatus = rs
+	if protected {
+		tns.Spec.Lifecycle = &tcloudcommon.LifecycleSpec{
+			EnableDeleteProtection: true,
+		}
+	}
 	return tns
 }
 
