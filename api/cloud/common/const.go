@@ -3,6 +3,8 @@ package common
 import (
 	"fmt"
 	"strings"
+
+	"github.com/samber/lo"
 )
 
 const (
@@ -32,16 +34,26 @@ const (
 	DeletionPolicyRetain DeletionPolicy = "retain"
 )
 
-// Validate returns an error if the DeletionPolicy is not valid.
+// validDeletionPolicies are the valid DeletionPolicy values.
+var validDeletionPolicies = []string{
+	string(DeletionPolicyRetain),
+	string(DeletionPolicyDelete),
+}
+
+// Validate returns an error if the DeletionPolicy is not one of the valid
+// values.
 func (p DeletionPolicy) Validate() error {
-	switch p {
-	case DeletionPolicyRetain, DeletionPolicyDelete:
+	if ContainsFold(string(p), validDeletionPolicies) {
 		return nil
-	default:
-		allowed := strings.Join(
-			[]string{string(DeletionPolicyRetain), string(DeletionPolicyDelete)},
-			", ",
-		)
-		return fmt.Errorf("invalid deletion policy %q. allowed values: %s", p, allowed)
 	}
+	allowed := strings.Join(validDeletionPolicies, ", ")
+	return fmt.Errorf("invalid deletion policy %q. allowed values: %s", p, allowed)
+}
+
+// ContainsFold returns true if the subject matches one of the
+// supplied valid values.
+func ContainsFold(subject string, validValues []string) bool {
+	return lo.ContainsBy(validValues, func(v string) bool {
+		return strings.EqualFold(subject, v)
+	})
 }

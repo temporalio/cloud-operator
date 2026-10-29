@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	ctrlreqlog "github.com/temporalio/kube-temporal/pkg/controller/request/log"
@@ -32,7 +33,6 @@ import (
 // It works on a copy of `original` and returns that copy, with any status
 // changes (State, AsyncOperationID, conditions), as the latest state.
 // `original` is never mutated.
-
 func (r *Reconciler) ResourceDelete(
 	ctx context.Context,
 	original types.Resource,
@@ -68,9 +68,11 @@ func (r *Reconciler) ResourceDelete(
 		return latest, err
 	}
 	if policy == tcloudcommon.DeletionPolicyRetain {
-		// TODO(Mechack): log that the Namespace is retained because of the
-		// retain deletion policy, once ctrlreqlog's log.Info no longer panics
-		// (ToContext never stores the request logger).
+		log.Info(
+			"retaining Temporal Cloud Namespace because of the retain deletion policy",
+			slog.String("namespace_id", cr.Status.ID),
+			slog.String("deletion_policy", string(policy)),
+		)
 		return latest, nil
 	}
 
