@@ -323,7 +323,26 @@ func specWithoutProjectAndTags(
 	out := spec.DeepCopy()
 	out.Project = ""
 	out.Tags = nil
+	if cs := out.CodecServer; cs != nil && cs.CustomErrorMessage != nil {
+		cs.CustomErrorMessage.Default = nilIfEmpty(cs.CustomErrorMessage.Default)
+		cs.CustomErrorMessage = nilIfEmpty(cs.CustomErrorMessage)
+	}
+	out.CodecServer = nilIfEmpty(out.CodecServer)
+	out.MTLSAuth = nilIfEmpty(out.MTLSAuth)
+	out.Lifecycle = nilIfEmpty(out.Lifecycle)
+	out.HighAvailability = nilIfEmpty(out.HighAvailability)
+	out.Fairness = nilIfEmpty(out.Fairness)
+	out.EncryptionValidation = nilIfEmpty(out.EncryptionValidation)
 	return out
+}
+
+// nilIfEmpty returns nil if p points to a zero value, otherwise p.
+func nilIfEmpty[T any](p *T) *T {
+	var zero T
+	if p != nil && equality.Semantic.DeepEqual(*p, zero) {
+		return nil
+	}
+	return p
 }
 
 // cloudCallError wraps an error returned from a Temporal Cloud call in
