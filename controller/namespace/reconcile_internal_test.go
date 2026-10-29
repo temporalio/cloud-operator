@@ -10,6 +10,10 @@ import (
 	tcloudnamespacev1 "go.temporal.io/cloud-sdk/api/namespace/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
+	"k8s.io/apimachinery/pkg/api/equality"
+
+	cloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
+	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 )
 
 // fakeCloudService implements GetNamespaces by returning the supplied pages
@@ -197,6 +201,79 @@ func TestTagsDiff(t *testing.T) {
 
 			require.Equal(tc.expUpsert, upsert)
 			require.Equal(tc.expRemove, remove)
+		})
+	}
+}
+
+func TestSpecWithoutProjectAndTags(t *testing.T) {
+	// Namespace spec as a user will write, where optional blocks are left unset.
+	minimalSpec := func() *tcloudv1alpha1.NamespaceSpec {
+		return &tcloudv1alpha1.NamespaceSpec{
+			Replicas:      []tcloudv1alpha1.ReplicaSpec{{Region: "aws-us-west-2"}},
+			RetentionDays: 30,
+			APIKeyAuth:    &tcloudv1alpha1.APIKeyAuthSpec{Enabled: true},
+			Capacity:      &tcloudv1alpha1.CapacitySpec{OnDemand: &tcloudv1alpha1.OnDemandCapacity{}},
+		}
+	}
+
+	cases := []struct {
+		name     string
+		desired  *tcloudv1alpha1.NamespaceSpec
+		latest   func(*tcloudv1alpha1.NamespaceSpec)
+		expEqual bool
+	}{
+		{
+			name:    "cloud returns empty optional blocks",
+			desired: minimalSpec(),
+			latest: func(s *tcloudv1alpha1.NamespaceSpec) {
+				s.MTLSAuth = &tcloudv1alpha1.MTLSAuthSpec{}
+				s.CodecServer = &tcloudv1alpha1.CodecServerSpec{
+					CustomErrorMessage: &tcloudv1alpha1.CodecServerCustomErrorMessage{
+						Default: &tcloudv1alpha1.CodecServerErrorMessage{},
+					},
+				}
+				s.Lifecycle = &cloudcommon.LifecycleSpec{}
+				s.HighAvailability = &tcloudv1alpha1.HighAvailabilitySpec{}
+				s.Fairness = &tcloudv1alpha1.FairnessSpec{}
+				s.EncryptionValidation = &tcloudv1alpha1.EncryptionValidationSpec{}
+			},
+			expEqual: true,
+		},
+		{
+			name:    "project and tags are ignored",
+			desired: minimalSpec(),
+			latest: func(s *tcloudv1alpha1.NamespaceSpec) {
+				s.Project = "project-1"
+				s.Tags = map[string]string{"team": "payments"}
+			},
+			expEqual: true,
+		},
+		{
+			name:    "retention differs",
+			desired: minimalSpec(),
+			latest: func(s *tcloudv1alpha1.NamespaceSpec) {
+				s.RetentionDays = 7
+			},
+			expEqual: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(tt *testing.T) {
+			require := require.New(tt)
+
+			latest := tc.desired.DeepCopy()
+			tc.latest(latest)
+			desiredBefore := tc.desired.DeepCopy()
+			latestBefore := latest.DeepCopy()
+
+			got := equality.Semantic.DeepEqual(
+				specWithoutProjectAndTags(tc.desired),
+				specWithoutProjectAndTags(latest),
+			)
+
+			require.Equal(tc.expEqual, got)
+			require.Equal(desiredBefore, tc.desired, "desired spec was modified")
+			require.Equal(latestBefore, latest, "latest spec was modified")
 		})
 	}
 }
