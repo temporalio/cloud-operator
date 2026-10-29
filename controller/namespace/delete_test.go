@@ -114,10 +114,22 @@ func TestReconciler_ResourceDelete_DeletionPolicy(t *testing.T) {
 			expStatus:  &statusDeleting,
 		},
 		{
-			name:   "invalid policy errors without cloud calls",
-			policy: "destroy",
+			name:   "capitalized retain makes no cloud calls",
+			policy: "Retain",
 			status: statusActive,
-			expErr: `invalid deletion policy "destroy"`,
+		},
+		{
+			name:   "retain with surrounding whitespace makes no cloud calls",
+			policy: " retain ",
+			status: statusActive,
+		},
+		{
+			name:       "invalid policy sets stalled and requeues without cloud calls",
+			policy:     "destroy",
+			status:     statusActive,
+			expErr:     `invalid deletion policy "destroy"`,
+			expRequeue: true,
+			expStalled: `invalid deletion policy "destroy"`,
 		},
 	}
 	for _, tc := range cases {
@@ -434,6 +446,9 @@ func requireDeleteError(t *testing.T, tc deleteCase, err error) {
 		require.Equal(
 			requeue.DefaultRequeueAfterDuration, requeueAfter.Duration(),
 		)
+		if tc.expErr != "" {
+			require.ErrorContains(err, tc.expErr)
+		}
 	case tc.expErr != "":
 		require.ErrorContains(err, tc.expErr)
 		require.False(

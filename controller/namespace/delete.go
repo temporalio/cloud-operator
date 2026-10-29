@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	ctrlreqlog "github.com/temporalio/kube-temporal/pkg/controller/request/log"
 	"github.com/temporalio/kube-temporal/pkg/controller/requeue"
@@ -51,6 +52,17 @@ func (r *Reconciler) ResourceDelete(
 
 	policy, err := deletionPolicy(latest)
 	if err != nil {
+		// Never fall back to delete on an invalid value. Annotation edits
+		// don't trigger a reconcile, so requeue to pick up a corrected value.
+		msg := fmt.Sprintf(
+			"%s. Set the %s annotation to %q or %q",
+			err, tcloudcommon.AnnotationKeyDeletionPolicy,
+			tcloudcommon.DeletionPolicyRetain, tcloudcommon.DeletionPolicyDelete,
+		)
+		condition.SetStalled(
+			latest, metav1.ConditionTrue, msg, tcloudcommon.ReasonResourceDeleteFailed,
+		)
+		err = requeue.NeededAfter(errors.New(msg), requeue.DefaultRequeueAfterDuration)
 		return latest, err
 	}
 	if policy == tcloudcommon.DeletionPolicyRetain {
@@ -185,6 +197,8 @@ func deletionPolicy(subject types.Resource) (tcloudcommon.DeletionPolicy, error)
 	if !ok {
 		return tcloudcommon.DeletionPolicyDelete, nil
 	}
+
+	v = strings.ToLower(strings.TrimSpace(v))
 	p := tcloudcommon.DeletionPolicy(v)
 	return p, p.Validate()
 }
