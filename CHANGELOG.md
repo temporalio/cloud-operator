@@ -17,7 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Bug Fixes
 
 - ignore empty cloud blocks for fields unset in the namespace CR ([`e10c6ab`](https://github.com/temporalio/cloud-operator/commit/e10c6ab36ed398f56cb34631f68bc788bbaf9834))
-- address pr comments ([`0e24528`](https://github.com/temporalio/cloud-operator/commit/0e245283d3a833cc00778d0301c29ae285fbb431))
 
 ### Refactoring
 
@@ -38,25 +37,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Other Changes
 
-- Only publish the exact version tag ([`b823f30`](https://github.com/temporalio/cloud-operator/commit/b823f309104b52f162846bb5b86470db490fc204))
 - Publish images to Docker Hub on release ([`e46947d`](https://github.com/temporalio/cloud-operator/commit/e46947de192491cf518ddd10f6cd43ca38823eb2))
 - updated docs for namespace lifecycle protection ([`adcc594`](https://github.com/temporalio/cloud-operator/commit/adcc5949c427c1cab95df954554e4a06b1b52285))
-- Address review: kube-temporal v0.7.0, retain log, case-insensitive Validate ([`b772b76`](https://github.com/temporalio/cloud-operator/commit/b772b760183864525df53ed3cf47e01d2dd34b1e))
 - updated install guide and a minor fix in main ([`fface5d`](https://github.com/temporalio/cloud-operator/commit/fface5d538771c91cb6119ef9c2bd971d8e94170))
 - Turn off deletion protection in Temporal Cloud before deleting ([`02c02d3`](https://github.com/temporalio/cloud-operator/commit/02c02d3078573b7b733cabba6fe45a25eb8c7afd))
 - Block delete when deletion protection is enabled ([`48bf442`](https://github.com/temporalio/cloud-operator/commit/48bf442a52c674d401f26428648d56af9084de82))
 - Surface invalid deletion policy as Stalled and requeue; accept any case ([`94d2b66`](https://github.com/temporalio/cloud-operator/commit/94d2b66dc7a23f4ecc4fb212083ca5c8e1e590b3))
 - gofmt fake server namespace.go ([`d10f12f`](https://github.com/temporalio/cloud-operator/commit/d10f12f66c694992e829c43cc9aff6c9f350deb9))
-- Clean up delete.go comments and imports ([`63d97ba`](https://github.com/temporalio/cloud-operator/commit/63d97ba6066afe598be55b05ca8636ffe6715516))
 - Address review: use kube-temporal v0.6.0, deletion policy type, delete tests ([`e1109dc`](https://github.com/temporalio/cloud-operator/commit/e1109dc04b35c914c4352be3bc4324f04fdb6fa3))
-- Simplify namespace delete path per review ([`0126b6c`](https://github.com/temporalio/cloud-operator/commit/0126b6c624d21c504a79d412edf2ef8f47959ac2))
 - Add deletion policy field and decision logic ([`b86360d`](https://github.com/temporalio/cloud-operator/commit/b86360d3fabfe2b1b5e1b436904aab7315ec3bc1))
-- Address PR feedback, move convert.go helpers into v1alpha1/namespace.go, update ResourceSetLatest test ([`6fee49a`](https://github.com/temporalio/cloud-operator/commit/6fee49ae354de545ff90b7be6b2b0d9e34479bd2))
 - Add separate GetNamespace assertion helper ([`537121a`](https://github.com/temporalio/cloud-operator/commit/537121a8933133f174635701b5dcc397c965203b))
 - introduce a fake Temporal Cloud server ([`aa26079`](https://github.com/temporalio/cloud-operator/commit/aa260794b655e83717397b3b24d2ac43383598c4))
 - Add implementation and helpers for ResourceSetLatest and ResourceSync ([`6c40758`](https://github.com/temporalio/cloud-operator/commit/6c4075859d595bf344b1754102871e3a6f3adf57))
-- One more rename in Dockerfile labels ([`24368d5`](https://github.com/temporalio/cloud-operator/commit/24368d5434fc02fade0f72b2cc52fa1458a44541))
-- Fix up go-fmt ([`3c23a48`](https://github.com/temporalio/cloud-operator/commit/3c23a4894dbc928693201f5964b6bf4a0f53ca58))
 - rename resource-operator to cloud-operator ([`1af3dd7`](https://github.com/temporalio/cloud-operator/commit/1af3dd77204cf11bfc3f66232399b73580fbeaa0))
 - integrate kube-temporal base reconciler library ([`e03d12a`](https://github.com/temporalio/cloud-operator/commit/e03d12a14ce6c8585277bb4af0dcd51b5c1f414e))
 - Temporal Cloud client/connection handling ([`af0e3d2`](https://github.com/temporalio/cloud-operator/commit/af0e3d23dac914b5c6a8ec577956b7eab0e22c0b))
@@ -68,4 +60,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bump go.opentelemetry.io/otel/sdk from 1.44.0 to 1.45.0 ([`3da038c`](https://github.com/temporalio/cloud-operator/commit/3da038c7f4df69371d991b16bce5408cab13f8ca))
 - Uplift temporalio/kube-temporal to v0.1.0 ([`5c99376`](https://github.com/temporalio/cloud-operator/commit/5c99376993c4b994d7aff670432214c5887687e0))
 - add kustomize artifacts and update Makefiles ([`50d3e32`](https://github.com/temporalio/cloud-operator/commit/50d3e32206a2d0bedd07278b1202bbebc98bb982))
-- initial commit ([`1eb5c09`](https://github.com/temporalio/cloud-operator/commit/1eb5c093dbdc99fd48cdba623a4aeed26440c7ac))
