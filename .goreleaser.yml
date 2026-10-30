@@ -48,7 +48,6 @@ dockers:
     goarch: amd64
     image_templates:
       - "temporalio/cloud-operator:{{ .Tag }}-amd64"
-      - "temporalio/cloud-operator:v{{ .Major }}.{{ .Minor }}-amd64"
     dockerfile: Dockerfile.goreleaser
     use: buildx
     build_flag_templates:
@@ -71,7 +70,6 @@ dockers:
     goarch: arm64
     image_templates:
       - "temporalio/cloud-operator:{{ .Tag }}-arm64"
-      - "temporalio/cloud-operator:v{{ .Major }}.{{ .Minor }}-arm64"
     dockerfile: Dockerfile.goreleaser
     use: buildx
     build_flag_templates:
@@ -94,12 +92,7 @@ docker_manifests:
       - "temporalio/cloud-operator:{{ .Tag }}-amd64"
       - "temporalio/cloud-operator:{{ .Tag }}-arm64"
 
-  - name_template: "temporalio/cloud-operator:v{{ .Major }}.{{ .Minor }}"
-    image_templates:
-      - "temporalio/cloud-operator:v{{ .Major }}.{{ .Minor }}-amd64"
-      - "temporalio/cloud-operator:v{{ .Major }}.{{ .Minor }}-arm64"
-
-  # Pre-releases (e.g. v0.1.0-rc.1) don't move :latest.
+  # Pre-releases (e.g. v0.2.0-rc.1) don't move :latest.
   - name_template: "temporalio/cloud-operator:latest"
     skip_push: auto
     image_templates:
