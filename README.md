@@ -34,9 +34,9 @@ Kubernetes][ack] (ACK), this is the same concept applied to Temporal Cloud.
 ### Installation
 
 ```bash
-export TCO_VERSION=main
+export TCO_VERSION=v0.1.0
 export TEMPORAL_CLOUD_API_KEY=<your API key>
-TCO_REPO=https://github.com/temporalio/cloud-operator
+export TCO_REPO=https://github.com/temporalio/cloud-operator
 
 # 1. Install the operator
 kubectl apply -k "$TCO_REPO//deploy/kustomize/default?ref=$TCO_VERSION"
