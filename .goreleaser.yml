@@ -1,0 +1,107 @@
+version: 2
+
+before:
+  hooks:
+    - go mod download
+
+announce:
+  skip: true
+
+changelog:
+  disable: true
+
+release:
+  prerelease: auto
+  draft: false
+
+builds:
+  - id: nix
+    main: ./cmd/cloud-operator
+    binary: cloud-operator
+    ldflags:
+      - -s -w
+      - -X github.com/temporalio/cloud-operator/pkg/version.GitVersion={{.Tag}}
+      - -X github.com/temporalio/cloud-operator/pkg/version.GitCommit={{.FullCommit}}
+      - -X github.com/temporalio/cloud-operator/pkg/version.BuildDate={{.Date}}
+    goarch:
+      - amd64
+      - arm64
+    goos:
+      - linux
+    env:
+      - CGO_ENABLED=0
+
+archives:
+  - id: default
+    name_template: "cloud-operator_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+dockers:
+  - ids:
+      - nix
+    goos: linux
+    goarch: amd64
+    image_templates:
+      - "temporalio/cloud-operator:{{ .Tag }}-amd64"
+      - "temporalio/cloud-operator:v{{ .Major }}.{{ .Minor }}-amd64"
+    dockerfile: Dockerfile.goreleaser
+    use: buildx
+    build_flag_templates:
+      - --platform=linux/amd64
+      - --label=org.opencontainers.image.title=Temporal Cloud Operator
+      - --label=org.opencontainers.image.description=A Kubernetes Operator that manages the lifecycle of Temporal Cloud resources
+      - --label=org.opencontainers.image.url=https://github.com/temporalio/cloud-operator
+      - --label=org.opencontainers.image.source=https://github.com/temporalio/cloud-operator
+      - --label=org.opencontainers.image.version={{ .Tag }}
+      - --label=org.opencontainers.image.created={{ time "2006-01-02T15:04:05Z07:00" }}
+      - --label=org.opencontainers.image.revision={{ .FullCommit }}
+      - --label=org.opencontainers.image.vendor=Temporal Technologies, Inc.
+      - --label=org.opencontainers.image.licenses=Apache-2.0
+    extra_files:
+      - LICENSE
+
+  - ids:
+      - nix
+    goos: linux
+    goarch: arm64
+    image_templates:
+      - "temporalio/cloud-operator:{{ .Tag }}-arm64"
+      - "temporalio/cloud-operator:v{{ .Major }}.{{ .Minor }}-arm64"
+    dockerfile: Dockerfile.goreleaser
+    use: buildx
+    build_flag_templates:
+      - --platform=linux/arm64
+      - --label=org.opencontainers.image.title=Temporal Cloud Operator
+      - --label=org.opencontainers.image.description=A Kubernetes Operator that manages the lifecycle of Temporal Cloud resources
+      - --label=org.opencontainers.image.url=https://github.com/temporalio/cloud-operator
+      - --label=org.opencontainers.image.source=https://github.com/temporalio/cloud-operator
+      - --label=org.opencontainers.image.version={{ .Tag }}
+      - --label=org.opencontainers.image.created={{ time "2006-01-02T15:04:05Z07:00" }}
+      - --label=org.opencontainers.image.revision={{ .FullCommit }}
+      - --label=org.opencontainers.image.vendor=Temporal Technologies, Inc.
+      - --label=org.opencontainers.image.licenses=Apache-2.0
+    extra_files:
+      - LICENSE
+
+docker_manifests:
+  - name_template: "temporalio/cloud-operator:{{ .Tag }}"
+    image_templates:
+      - "temporalio/cloud-operator:{{ .Tag }}-amd64"
+      - "temporalio/cloud-operator:{{ .Tag }}-arm64"
+
+  - name_template: "temporalio/cloud-operator:v{{ .Major }}.{{ .Minor }}"
+    image_templates:
+      - "temporalio/cloud-operator:v{{ .Major }}.{{ .Minor }}-amd64"
+      - "temporalio/cloud-operator:v{{ .Major }}.{{ .Minor }}-arm64"
+
+  # Pre-releases (e.g. v0.1.0-rc.1) don't move :latest.
+  - name_template: "temporalio/cloud-operator:latest"
+    skip_push: auto
+    image_templates:
+      - "temporalio/cloud-operator:{{ .Tag }}-amd64"
+      - "temporalio/cloud-operator:{{ .Tag }}-arm64"
