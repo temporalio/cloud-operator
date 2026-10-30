@@ -1,0 +1,6 @@
+FROM gcr.io/distroless/static-debian12:nonroot
+
+COPY LICENSE /LICENSE
+COPY --chown=65532:65532 cloud-operator /bin/cloud-operator
+
+ENTRYPOINT ["/bin/cloud-operator"]
