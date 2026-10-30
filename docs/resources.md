@@ -211,7 +211,7 @@ Spec:
 ...
 Status:
   Conditions:
-    Message:  tcloud namespace payments-protected.ewkya has deletion protection enabled; set spec.lifecycle.enableDeleteProtection to false to delete it, or set the cloud.temporal.io/deletion-policy annotation to "retain" to keep it
+    Message:  tcloud namespace payments-protected.a1b2c has deletion protection enabled; set spec.lifecycle.enableDeleteProtection to false to delete it, or set the cloud.temporal.io/deletion-policy annotation to "retain" to keep it
     Reason:   ResourceDeleteFailed
     Status:   True
     Type:     Stalled
