@@ -63,7 +63,7 @@ spec:
 Apply it to the Kubernetes Namespace that holds your Temporal Cloud resources:
 
 ```bash
-$ kubectl apply -n temporal-cloud -f examples/namespace.yaml
+$ kubectl apply -n cloud-resources -f examples/namespace.yaml
 namespace.cloud.temporal.io/payments-prod created
 ```
 
@@ -79,7 +79,7 @@ The Kubernetes API server checks the structure of the manifest when you apply
 it:
 
 ```bash
-$ kubectl apply -n temporal-cloud -f examples/namespace.yaml  # with both onDemand and provisioned capacity
+$ kubectl apply -n cloud-resources -f examples/namespace.yaml  # with both onDemand and provisioned capacity
 The Namespace "payments-prod" is invalid: spec.capacity: Invalid value: exactly one of onDemand or provisioned must be set
 ```
 
@@ -109,7 +109,7 @@ spec:
 Edit the manifest and apply it again:
 
 ```bash
-$ kubectl apply -n temporal-cloud -f examples/namespace.yaml
+$ kubectl apply -n cloud-resources -f examples/namespace.yaml
 namespace.cloud.temporal.io/payments-prod configured
 ```
 
@@ -138,7 +138,7 @@ Temporal Cloud Namespace. A resource without the
 `cloud.temporal.io/deletion-policy` annotation uses this policy:
 
 ```bash
-$ kubectl delete -n temporal-cloud namespaces.cloud.temporal.io payments-prod
+$ kubectl delete -n cloud-resources namespaces.cloud.temporal.io payments-prod
 namespace.cloud.temporal.io "payments-prod" deleted
 ```
 
@@ -179,26 +179,53 @@ With delete protection on, deleting the Namespace is a two-step process:
    `false` and apply the manifest:
 
    ```bash
-   $ kubectl apply -n temporal-cloud -f examples/namespace-delete-protection.yaml
+   $ kubectl apply -n cloud-resources -f examples/namespace-delete-protection.yaml
    namespace.cloud.temporal.io/payments-protected configured
    ```
 
 2. Delete the resource:
 
    ```bash
-   $ kubectl delete -n temporal-cloud namespaces.cloud.temporal.io payments-protected
+   $ kubectl delete -n cloud-resources namespaces.cloud.temporal.io payments-protected
    namespace.cloud.temporal.io "payments-protected" deleted
    ```
 
-**Note**: If you delete the resource before turning off delete protection, the
-operator doesn't delete the Temporal Cloud Namespace. It marks the delete as failed (a `Stalled` condition with
-reason `ResourceDeleteFailed`) and keeps retrying. To let the delete go
-through, set `spec.lifecycle.enableDeleteProtection` to `false`. On the next
-reconcile, the operator deletes the Temporal Cloud Namespace and removes the
-resource:
+**Note**: If you delete the resource before turning off the delete protection, the
+operator doesn't delete the Temporal Cloud Namespace. It sets a `Stalled`
+condition (reason `ResourceDeleteFailed`) explaining that delete protection is
+on, and checks again every 30 seconds, by default.
+
 
 ```bash
-$ kubectl patch -n temporal-cloud namespaces.cloud.temporal.io payments-protected \
+$ kubectl describe -n cloud-resources namespaces.cloud.temporal.io payments-protected
+Name:         payments-protected
+...
+Metadata:
+  Deletion Timestamp:  2026-10-30T01:07:42Z
+  Finalizers:
+    namespace.cloud.temporal.io/finalizer
+...
+Spec:
+  Lifecycle:
+    Enable Delete Protection:  true
+...
+Status:
+  Conditions:
+    Message:  tcloud namespace payments-protected.ewkya has deletion protection enabled; set spec.lifecycle.enableDeleteProtection to false to delete it, or set the cloud.temporal.io/deletion-policy annotation to "retain" to keep it
+    Reason:   ResourceDeleteFailed
+    Status:   True
+    Type:     Stalled
+  State:      Active
+```
+
+To let the delete go through, set `spec.lifecycle.enableDeleteProtection` to
+`false`. The operator turns off delete protection in Temporal Cloud, then
+deletes the Temporal Cloud Namespace and removes the resource:
+
+```bash
+$ kubectl patch -n cloud-resources namespaces.cloud.temporal.io payments-protected \
     --type=merge -p '{"spec":{"lifecycle":{"enableDeleteProtection":false}}}'
 namespace.cloud.temporal.io/payments-protected patched
 ```
+
+
