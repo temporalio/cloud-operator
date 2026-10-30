@@ -21,11 +21,12 @@ const (
 func New(
 	cfg config.Config,
 	logger *slog.Logger,
+	opts ...NewReconcilerOption,
 ) *controller.Controller {
 	return controller.New(
 		ControllerName,
 		cfg,
-		NewReconciler(),
+		NewReconciler(opts...),
 		controller.WithLogger(logger),
 	)
 }

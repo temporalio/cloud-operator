@@ -56,6 +56,7 @@ spec:
         - --logging-level=info
         - --leader-election-enabled=false
         image: temporalio/cloud-operator:latest
+        imagePullPolicy: IfNotPresent
         name: cloud-operator
         ports: []
         securityContext:
@@ -83,7 +84,13 @@ spec:
           requests:
             cpu: 10m
             memory: 64Mi
-        volumeMounts: []
-      volumes: []
+        volumeMounts:
+        - name: temporal-cloud-api-key
+          mountPath: /etc/temporal-cloud
+          readOnly: true
+      volumes:
+      - name: temporal-cloud-api-key
+        secret:
+          secretName: temporal-cloud-api-key
       serviceAccountName: temporal-cloud-operator
       terminationGracePeriodSeconds: 10

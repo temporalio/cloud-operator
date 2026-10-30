@@ -54,7 +54,7 @@ apiVersion: cloud.temporal.io/v1alpha1
 kind: Namespace
 metadata:
   name: payments-prod
-  namespace: temporal-cloud
+  namespace: cloud-resources
   labels:
     team: payments
 spec:

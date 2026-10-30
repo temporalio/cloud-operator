@@ -18,10 +18,12 @@ import (
 	ctrlnamespace "github.com/temporalio/cloud-operator/controller/namespace"
 	"github.com/temporalio/cloud-operator/pkg/version"
 	"github.com/temporalio/kube-temporal/pkg/controller/config"
+	tcclient "go.temporal.io/cloud-sdk/cloudclient"
 )
 
 const (
-	binaryName = "cloud-operator"
+	binaryName        = "cloud-operator"
+	defaultApiKeyPath = "/etc/temporal-cloud/apikey"
 )
 
 var (
@@ -69,8 +71,26 @@ func main() {
 
 	rootLogger := slog.New(logr.ToSlogHandler(ctrlrtlog.Log))
 
+	setupLog.Info("initializing Temporal Cloud client")
+	apiKey, err := os.ReadFile(defaultApiKeyPath)
+	if err != nil {
+		setupLog.Error(err, "failed reading Temporal Cloud API key")
+		os.Exit(1)
+	}
+	tcc, err := tcclient.New(tcclient.Options{
+		APIKey: string(apiKey), UserAgent: version.UserAgent(),
+	})
+	if err != nil {
+		setupLog.Error(err, "failed creating Temporal Cloud client")
+		os.Exit(1)
+	}
+
 	setupLog.Info("initializing controller")
-	c := ctrlnamespace.New(cfg, rootLogger)
+	c := ctrlnamespace.New(
+		cfg,
+		rootLogger,
+		ctrlnamespace.WithDefaultCloudClient(*tcc),
+	)
 
 	if err = c.BindManager(mgr); err != nil {
 		setupLog.Error(
