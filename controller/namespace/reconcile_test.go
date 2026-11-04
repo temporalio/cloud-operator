@@ -96,7 +96,7 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 	project := "tmprl-project"
 	projectOther := "tmprl-project-other"
 
-	// tns has never been synced, so it has no Status.ID and
+	// tns has never been synced, so it has no Status.Cloud.ID and
 	// ResourceSetLatest looks the namespace up by name.
 	tns := &tcloudv1alpha1.Namespace{}
 	tns.Name = tnsName
@@ -105,9 +105,9 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 	tns.Spec.RetentionDays = 7
 
 	// tnsSynced has been synced before, so ResourceSetLatest gets the
-	// namespace by its Status.ID.
+	// namespace by its Status.Cloud.ID.
 	tnsSynced := tns.DeepCopy()
-	tnsSynced.Status.ID = tnsID
+	tnsSynced.Status.Cloud.ID = tnsID
 	tnsSynced.Status.ResourceVersion = "rv-0"
 
 	// cloudNS is the namespace as Temporal Cloud reports it. Its project
@@ -146,7 +146,7 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 			RetentionDays: 30,
 		}
 		ns.Status.ResourceStatus = cloudcommon.ResourceStatus{
-			ID:               tnsID,
+			Cloud:            cloudcommon.CloudStatus{ID: tnsID},
 			ResourceVersion:  "rv-1",
 			State:            cloudcommon.ResourceStateActive,
 			AsyncOperationID: "op-1",

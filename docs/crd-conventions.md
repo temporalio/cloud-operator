@@ -47,7 +47,7 @@ For the fields a CR manages, its `spec` is the source of truth. When the control
 
 ## Example Namespace CR
 
-This manifest illustrates the proposed CR shape. The `status` field names `cloudID` and `cloudResourceVersion` are placeholders for the Cloud reference fields, whose names are not yet decided. All values are illustrative.
+This manifest illustrates the proposed CR shape. The Cloud reference fields are grouped under `status.cloud`. All values are illustrative.
 
 ```yaml
 apiVersion: cloud.temporal.io/v1alpha1
@@ -70,8 +70,9 @@ spec:
     onDemand: {}
 status:
   # Cloud reference
-  cloudID: payments-prod.a1b2c
-  cloudResourceVersion: "4"
+  cloud:
+    id: payments-prod.a1b2c
+  resourceVersion: "4"
   # Progress
   observedGeneration: 1
   conditions:

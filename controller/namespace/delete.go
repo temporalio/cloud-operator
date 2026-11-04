@@ -46,7 +46,7 @@ func (r *Reconciler) ResourceDelete(
 
 	latest := original.DeepCopy()
 	cr := latest.CR().(*tcloudv1alpha1.Namespace)
-	if cr.Status.ID == "" {
+	if cr.Status.Cloud.ID == "" {
 		// The user deleted the CR before the operator created a Namespace in
 		// Temporal Cloud, so there's nothing to delete.
 		return latest, nil
@@ -70,7 +70,7 @@ func (r *Reconciler) ResourceDelete(
 	if policy == tcloudcommon.DeletionPolicyRetain {
 		log.Info(
 			"retaining Temporal Cloud Namespace because of the retain deletion policy",
-			slog.String("namespace_id", cr.Status.ID),
+			slog.String("namespace_id", cr.Status.Cloud.ID),
 			slog.String("deletion_policy", string(policy)),
 		)
 		return latest, nil
@@ -91,7 +91,7 @@ func (r *Reconciler) ResourceDelete(
 		// A previous delete failed. Don't send another one automatically.
 		err = ctrlerrors.NewTerminalError(fmt.Errorf(
 			"deleting Temporal Cloud namespace %s previously failed (async operation %s); not retrying",
-			cr.Status.ID, cr.Status.AsyncOperationID,
+			cr.Status.Cloud.ID, cr.Status.AsyncOperationID,
 		))
 		return latest, err
 	case cr.Status.State == tcloudcommon.ResourceStateDeleting &&
@@ -105,7 +105,7 @@ func (r *Reconciler) ResourceDelete(
 		err = requeue.NeededAfter(
 			fmt.Errorf(
 				"waiting for tcloud namespace %s to finish %s before deleting",
-				cr.Status.ID, cr.Status.State,
+				cr.Status.Cloud.ID, cr.Status.State,
 			),
 			requeue.DefaultRequeueAfterDuration,
 		)
@@ -120,7 +120,7 @@ func (r *Reconciler) ResourceDelete(
 			"tcloud namespace %s has deletion protection enabled; set "+
 				"spec.lifecycle.enableDeleteProtection to false to delete it, "+
 				"or set the %s annotation to %q to keep it",
-			cr.Status.ID, tcloudcommon.AnnotationKeyDeletionPolicy,
+			cr.Status.Cloud.ID, tcloudcommon.AnnotationKeyDeletionPolicy,
 			tcloudcommon.DeletionPolicyRetain,
 		)
 		condition.SetStalled(
@@ -133,7 +133,7 @@ func (r *Reconciler) ResourceDelete(
 	// Read the namespace so deletion protection in Temporal Cloud can be made
 	// to match the CR, and so the delete uses the current resource version.
 	getResp, err := tcc.GetNamespace(ctx, &tcloudservicev1.GetNamespaceRequest{
-		Namespace: cr.Status.ID,
+		Namespace: cr.Status.Cloud.ID,
 	})
 	if status.Code(err) == codes.NotFound {
 		// Already gone.
@@ -141,7 +141,7 @@ func (r *Reconciler) ResourceDelete(
 		return latest, nil
 	}
 	if err != nil {
-		err = fmt.Errorf("failed getting tcloud namespace %s: %w", cr.Status.ID, err)
+		err = fmt.Errorf("failed getting tcloud namespace %s: %w", cr.Status.Cloud.ID, err)
 		return latest, err
 	}
 	tns := getResp.GetNamespace()
@@ -154,7 +154,7 @@ func (r *Reconciler) ResourceDelete(
 	}
 
 	resp, err := tcc.DeleteNamespace(ctx, &tcloudservicev1.DeleteNamespaceRequest{
-		Namespace:       cr.Status.ID,
+		Namespace:       cr.Status.Cloud.ID,
 		ResourceVersion: tns.GetResourceVersion(),
 	})
 	if status.Code(err) == codes.NotFound {
@@ -165,7 +165,7 @@ func (r *Reconciler) ResourceDelete(
 	if err != nil {
 		// The gRPC error includes Temporal Cloud's message, for example that
 		// deletion protection is enabled.
-		err = fmt.Errorf("failed deleting tcloud namespace %s: %w", cr.Status.ID, err)
+		err = fmt.Errorf("failed deleting tcloud namespace %s: %w", cr.Status.Cloud.ID, err)
 		condition.SetStalled(
 			latest, metav1.ConditionTrue, err.Error(), tcloudcommon.ReasonResourceDeleteFailed,
 		)
@@ -177,7 +177,7 @@ func (r *Reconciler) ResourceDelete(
 	err = requeue.NeededAfter(
 		fmt.Errorf(
 			"deleting tcloud namespace %s (async operation %s)",
-			cr.Status.ID, cr.Status.AsyncOperationID,
+			cr.Status.Cloud.ID, cr.Status.AsyncOperationID,
 		),
 		requeue.DefaultRequeueAfterDuration,
 	)
@@ -242,7 +242,7 @@ func checkDelete(
 		operationv1.AsyncOperation_STATE_CANCELLED:
 		msg := fmt.Sprintf(
 			"deleting tcloud namespace %s failed: async operation %s is %s: %s",
-			cr.Status.ID, op.GetId(), op.GetState(), op.GetFailureReason(),
+			cr.Status.Cloud.ID, op.GetId(), op.GetState(), op.GetFailureReason(),
 		)
 		condition.SetStalled(
 			latest, metav1.ConditionTrue, msg, tcloudcommon.ReasonResourceDeleteFailed,

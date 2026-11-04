@@ -11,12 +11,9 @@ import (
 //
 // Ref: https://github.com/temporalio/cloud-api/blob/main/temporal/api/cloud/resource/v1/message.proto
 type ResourceStatus struct {
-	// ID is the identifier Temporal Cloud uses for the resource. Not set for
-	// resources that Temporal Cloud identifies by name.
-	// Maps to Temporal Cloud proto `id`, or `Namespace.namespace` for
-	// Namespaces.
+	// Cloud describes the resource as reported by Temporal Cloud.
 	// +optional
-	ID string `json:"id,omitempty"`
+	Cloud CloudStatus `json:"cloud,omitzero"`
 	// ResourceVersion is the version of the resource in Temporal Cloud. It is
 	// sent with each update and delete request.
 	// Maps to Temporal Cloud proto `resource_version`.
@@ -40,6 +37,17 @@ type ResourceStatus struct {
 	// Maps to Temporal Cloud proto `last_modified_time`.
 	// +optional
 	LastModifiedTime *metav1.Time `json:"lastModifiedTime,omitempty"`
+}
+
+// CloudStatus describes the resource as reported by Temporal Cloud.
+type CloudStatus struct {
+	// ID is the identifier Temporal Cloud uses for the resource. Not set for
+	// resources that Temporal Cloud identifies by name.
+	// Maps to Temporal Cloud proto `id`, or `Namespace.namespace` for
+	// Namespaces.
+	// +optional
+	ID string `json:"id,omitempty"`
+	// TODO: Add identifier fields for referenced CRs
 }
 
 // ResourceState is the state of a resource in Temporal Cloud.

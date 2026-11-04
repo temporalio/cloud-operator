@@ -210,7 +210,7 @@ func TestNamespaceFromProto_Status(t *testing.T) {
 				LastModifiedTime: timestamppb.New(modified),
 			},
 			exp: cloudcommon.ResourceStatus{
-				ID:               "my-ns.acct1",
+				Cloud:            cloudcommon.CloudStatus{ID: "my-ns.acct1"},
 				ResourceVersion:  "rv-1",
 				State:            cloudcommon.ResourceStateActive,
 				AsyncOperationID: "op-1",

@@ -17,7 +17,7 @@ import (
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="ID",type=string,JSONPath=`.status.id`
+// +kubebuilder:printcolumn:name="ID",type=string,JSONPath=`.status.cloud.id`
 // +kubebuilder:printcolumn:name="State",type=string,JSONPath=`.status.state`
 // +kubebuilder:printcolumn:name="Region",type=string,JSONPath=`.spec.replicas[0].region`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
@@ -43,7 +43,7 @@ func (n *Namespace) FromProto(in *tcloudnamespacev1.Namespace) {
 	n.Spec.Project = in.GetProjectId()
 	n.Spec.Tags = maps.Clone(in.GetTags())
 
-	n.Status.ID = in.GetNamespace()
+	n.Status.Cloud.ID = in.GetNamespace()
 	n.Status.ResourceVersion = in.GetResourceVersion()
 	n.Status.State.FromProto(in.GetState())
 	n.Status.AsyncOperationID = in.GetAsyncOperationId()

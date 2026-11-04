@@ -40,20 +40,20 @@ const (
 
 var (
 	statusActive = tcloudcommon.ResourceStatus{
-		ID:              deleteTestID,
+		Cloud:           tcloudcommon.CloudStatus{ID: deleteTestID},
 		ResourceVersion: deleteTestRV,
 		State:           tcloudcommon.ResourceStateActive,
 	}
 
 	statusDeleting = tcloudcommon.ResourceStatus{
-		ID:               deleteTestID,
+		Cloud:            tcloudcommon.CloudStatus{ID: deleteTestID},
 		ResourceVersion:  deleteTestRV,
 		State:            tcloudcommon.ResourceStateDeleting,
 		AsyncOperationID: deleteTestAsyncOpID,
 	}
 
 	statusDeleteFailed = tcloudcommon.ResourceStatus{
-		ID:               deleteTestID,
+		Cloud:            tcloudcommon.CloudStatus{ID: deleteTestID},
 		ResourceVersion:  deleteTestRV,
 		State:            tcloudcommon.ResourceStateDeleteFailed,
 		AsyncOperationID: deleteTestAsyncOpID,

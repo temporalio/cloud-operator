@@ -15,7 +15,7 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.id
+    - jsonPath: .status.cloud.id
       name: ID
       type: string
     - jsonPath: .status.state
@@ -366,6 +366,18 @@ spec:
                   started on the resource.
                   Maps to Temporal Cloud proto `async_operation_id`.
                 type: string
+              cloud:
+                description: Cloud describes the resource as reported by Temporal
+                  Cloud.
+                properties:
+                  id:
+                    description: |-
+                      ID is the identifier Temporal Cloud uses for the resource. Not set for
+                      resources that Temporal Cloud identifies by name.
+                      Maps to Temporal Cloud proto `id`, or `Namespace.namespace` for
+                      Namespaces.
+                    type: string
+                type: object
               conditions:
                 description: Conditions is the collection of Conditions associated
                   with the resource.
@@ -432,13 +444,6 @@ spec:
                   CreatedTime is when the resource was created in Temporal Cloud.
                   Maps to Temporal Cloud proto `created_time`.
                 format: date-time
-                type: string
-              id:
-                description: |-
-                  ID is the identifier Temporal Cloud uses for the resource. Not set for
-                  resources that Temporal Cloud identifies by name.
-                  Maps to Temporal Cloud proto `id`, or `Namespace.namespace` for
-                  Namespaces.
                 type: string
               lastModifiedTime:
                 description: |-

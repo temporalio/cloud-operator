@@ -116,7 +116,7 @@ func (r *Reconciler) ResourceSetLatest(
 	cr := latest.(*res).cr
 
 	var tns *tcloudnamespacev1.Namespace
-	if cr.Status.ID == "" {
+	if cr.Status.Cloud.ID == "" {
 		// The qualified namespace name is only known once a reconcile after
 		// the create has saved it to status, and status can be lost (e.g. the
 		// CR was recreated). Look the namespace up by name so that a duplicate
@@ -128,7 +128,7 @@ func (r *Reconciler) ResourceSetLatest(
 	} else {
 		var resp *tcloudservicev1.GetNamespaceResponse
 		resp, err = tcc.GetNamespace(ctx, &tcloudservicev1.GetNamespaceRequest{
-			Namespace: cr.Status.ID,
+			Namespace: cr.Status.Cloud.ID,
 		})
 		if status.Code(err) == codes.NotFound {
 			// The namespace was deleted outside of the operator. Treat it
@@ -213,7 +213,7 @@ func syncNamespace(
 	desired *tcloudv1alpha1.Namespace,
 	latest *tcloudv1alpha1.Namespace,
 ) error {
-	if latest.Status.ID == "" {
+	if latest.Status.Cloud.ID == "" {
 		tns := desired.ToProto()
 		resp, err := tcc.CreateNamespace(ctx, &tcloudservicev1.CreateNamespaceRequest{
 			Spec:      tns.GetSpec(),
@@ -232,7 +232,7 @@ func syncNamespace(
 	// Only an Active namespace accepts new operations. Every other state
 	// either resolves on its own, so we wait, or needs someone to step in, so
 	// we stop. Unknown states also wait rather than fall through to an update.
-	id := latest.Status.ID
+	id := latest.Status.Cloud.ID
 	switch state := latest.Status.State; state {
 	case cloudcommon.ResourceStateActive:
 	case cloudcommon.ResourceStateActivating, cloudcommon.ResourceStateUpdating:
