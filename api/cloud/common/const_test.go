@@ -34,6 +34,35 @@ func TestDeletionPolicyValidate(t *testing.T) {
 	}
 }
 
+func TestAdoptionPolicyValidate(t *testing.T) {
+	cases := []struct {
+		in     AdoptionPolicy
+		expErr bool
+	}{
+		{"adopt", false},
+		{"adopt-or-create", false},
+		{"Adopt", false},
+		{"ADOPT", false},
+		{"Adopt-Or-Create", false},
+		{"aDoPt-oR-cReAtE", false},
+		{"", true},
+		{"create", true},
+		{"adopt_or_create", true},
+		{"adoptorcreate", true},
+		{" adopt ", true},
+	}
+	for _, tc := range cases {
+		t.Run(string(tc.in), func(t *testing.T) {
+			err := tc.in.Validate()
+			if !tc.expErr {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, `invalid adoption policy "`+string(tc.in)+`". allowed values: adopt, adopt-or-create`)
+		})
+	}
+}
+
 func TestContainsFold(t *testing.T) {
 	validValues := []string{"retain", "delete"}
 	require.True(t, ContainsFold("retain", validValues))
