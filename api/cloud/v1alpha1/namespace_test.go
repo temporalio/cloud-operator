@@ -1,4 +1,4 @@
-package v1alpha1
+package v1alpha1_test
 
 import (
 	"testing"
@@ -12,53 +12,54 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	cloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
+	"github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 )
 
 // fullSpec and fullProtoNamespace describe the same namespace with every
 // field set. Pairs of booleans are given different values so that a swapped
 // field mapping is caught even if both directions swap it.
-func fullSpec() NamespaceSpec {
-	return NamespaceSpec{
+func fullSpec() v1alpha1.NamespaceSpec {
+	return v1alpha1.NamespaceSpec{
 		Project:       "proj-1",
 		Tags:          map[string]string{"team": "core", "env": "prod"},
-		Replicas:      []ReplicaSpec{{Region: "aws-us-east-1"}, {Region: "aws-us-west-2"}},
+		Replicas:      []v1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}, {Region: "aws-us-west-2"}},
 		RetentionDays: 30,
-		MTLSAuth: &MTLSAuthSpec{
+		MTLSAuth: &v1alpha1.MTLSAuthSpec{
 			Enabled:          true,
 			AcceptedClientCA: "-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----\n",
-			CertificateFilters: []CertificateFilterSpec{
+			CertificateFilters: []v1alpha1.CertificateFilterSpec{
 				{CommonName: "cn", Organization: "org", OrganizationalUnit: "ou", SubjectAlternativeName: "san"},
 				{CommonName: "cn2"},
 			},
 		},
-		APIKeyAuth: &APIKeyAuthSpec{Enabled: true},
-		SearchAttributes: map[string]SearchAttributeType{
-			"CustomText":    SearchAttributeTypeText,
-			"CustomKeyword": SearchAttributeTypeKeyword,
+		APIKeyAuth: &v1alpha1.APIKeyAuthSpec{Enabled: true},
+		SearchAttributes: map[string]v1alpha1.SearchAttributeType{
+			"CustomText":    v1alpha1.SearchAttributeTypeText,
+			"CustomKeyword": v1alpha1.SearchAttributeTypeKeyword,
 		},
-		CodecServer: &CodecServerSpec{
+		CodecServer: &v1alpha1.CodecServerSpec{
 			Endpoint:                      "https://codec.example.com",
 			PassAccessToken:               true,
 			IncludeCrossOriginCredentials: false,
-			CustomErrorMessage: &CodecServerCustomErrorMessage{
-				Default: &CodecServerErrorMessage{
+			CustomErrorMessage: &v1alpha1.CodecServerCustomErrorMessage{
+				Default: &v1alpha1.CodecServerErrorMessage{
 					Message: "codec unavailable",
 					Link:    "https://docs.example.com",
 				},
 			},
 		},
 		Lifecycle: &cloudcommon.LifecycleSpec{EnableDeleteProtection: true},
-		HighAvailability: &HighAvailabilitySpec{
+		HighAvailability: &v1alpha1.HighAvailabilitySpec{
 			DisableManagedFailover:         true,
 			DisablePassivePollerForwarding: false,
 		},
 		ConnectivityRuleIDs: []string{"rule-1", "rule-2"},
-		Capacity: &CapacitySpec{
-			Provisioned: &ProvisionedCapacity{Value: 4},
+		Capacity: &v1alpha1.CapacitySpec{
+			Provisioned: &v1alpha1.ProvisionedCapacity{Value: 4},
 		},
-		Fairness: &FairnessSpec{TaskQueueFairnessEnabled: true},
-		EncryptionValidation: &EncryptionValidationSpec{
-			Mode:           EncryptionValidationModeWarn,
+		Fairness: &v1alpha1.FairnessSpec{TaskQueueFairnessEnabled: true},
+		EncryptionValidation: &v1alpha1.EncryptionValidationSpec{
+			Mode:           v1alpha1.EncryptionValidationModeWarn,
 			MetadataKey:    "encoding",
 			MetadataValues: []string{"binary/encrypted"},
 			InspectHeader:  true,
@@ -128,26 +129,26 @@ func fullProtoNamespace() *tcloudnamespacev1.Namespace {
 	}
 }
 
-func namespaceWithSpec(spec NamespaceSpec) *Namespace {
-	ns := &Namespace{Spec: spec}
+func namespaceWithSpec(spec v1alpha1.NamespaceSpec) *v1alpha1.Namespace {
+	ns := &v1alpha1.Namespace{Spec: spec}
 	ns.Name = "my-ns"
 	return ns
 }
 
 func TestNamespaceFromProto_Spec(t *testing.T) {
-	minimal := NamespaceSpec{
-		Replicas:      []ReplicaSpec{{Region: "aws-us-east-1"}},
+	minimal := v1alpha1.NamespaceSpec{
+		Replicas:      []v1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}},
 		RetentionDays: 7,
 	}
 	cases := []struct {
 		name string
 		in   *tcloudnamespacev1.Namespace
-		exp  NamespaceSpec
+		exp  v1alpha1.NamespaceSpec
 	}{
 		{
 			name: "nil namespace",
 			in:   nil,
-			exp:  NamespaceSpec{},
+			exp:  v1alpha1.NamespaceSpec{},
 		},
 		{
 			name: "nil spec keeps outer fields",
@@ -155,7 +156,7 @@ func TestNamespaceFromProto_Spec(t *testing.T) {
 				ProjectId: "proj-1",
 				Tags:      map[string]string{"a": "1"},
 			},
-			exp: NamespaceSpec{
+			exp: v1alpha1.NamespaceSpec{
 				Project: "proj-1",
 				Tags:    map[string]string{"a": "1"},
 			},
@@ -179,7 +180,7 @@ func TestNamespaceFromProto_Spec(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(tt *testing.T) {
-			var got Namespace
+			var got v1alpha1.Namespace
 			got.FromProto(tc.in)
 			require.Equal(tt, tc.exp, got.Spec)
 		})
@@ -222,7 +223,7 @@ func TestNamespaceFromProto_Status(t *testing.T) {
 		t.Run(tc.name, func(tt *testing.T) {
 			require := require.New(tt)
 
-			got := namespaceWithSpec(NamespaceSpec{})
+			got := namespaceWithSpec(v1alpha1.NamespaceSpec{})
 			got.FromProto(tc.in)
 
 			require.Equal(tc.exp, got.Status.ResourceStatus)
@@ -236,7 +237,7 @@ func TestNamespaceFromProto_CopiesCollections(t *testing.T) {
 	require := require.New(t)
 
 	in := fullProtoNamespace()
-	var got Namespace
+	var got v1alpha1.Namespace
 	got.FromProto(in)
 
 	in.Tags["team"] = "changed"
@@ -256,13 +257,13 @@ func TestNamespaceToProto(t *testing.T) {
 
 	cases := []struct {
 		name string
-		in   *Namespace
+		in   *v1alpha1.Namespace
 		exp  *tcloudnamespacev1.Namespace
 	}{
 		{
 			name: "unset optional blocks stay nil",
-			in: namespaceWithSpec(NamespaceSpec{
-				Replicas:      []ReplicaSpec{{Region: "aws-us-east-1"}},
+			in: namespaceWithSpec(v1alpha1.NamespaceSpec{
+				Replicas:      []v1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}},
 				RetentionDays: 7,
 			}),
 			exp: &tcloudnamespacev1.Namespace{
@@ -290,12 +291,12 @@ func TestNamespaceToProto(t *testing.T) {
 func TestNamespace_RoundTrip(t *testing.T) {
 	cases := []struct {
 		name string
-		spec NamespaceSpec
+		spec v1alpha1.NamespaceSpec
 	}{
 		{
 			name: "minimal",
-			spec: NamespaceSpec{
-				Replicas:      []ReplicaSpec{{Region: "aws-us-east-1"}},
+			spec: v1alpha1.NamespaceSpec{
+				Replicas:      []v1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}},
 				RetentionDays: 7,
 			},
 		},
@@ -305,30 +306,30 @@ func TestNamespace_RoundTrip(t *testing.T) {
 		},
 		{
 			name: "on-demand capacity",
-			spec: NamespaceSpec{
-				Replicas:      []ReplicaSpec{{Region: "aws-us-east-1"}},
+			spec: v1alpha1.NamespaceSpec{
+				Replicas:      []v1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}},
 				RetentionDays: 7,
-				Capacity:      &CapacitySpec{OnDemand: &OnDemandCapacity{}},
+				Capacity:      &v1alpha1.CapacitySpec{OnDemand: &v1alpha1.OnDemandCapacity{}},
 			},
 		},
 		{
 			name: "explicitly empty blocks stay non-nil",
-			spec: NamespaceSpec{
-				Replicas:             []ReplicaSpec{{Region: "aws-us-east-1"}},
+			spec: v1alpha1.NamespaceSpec{
+				Replicas:             []v1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}},
 				RetentionDays:        7,
-				MTLSAuth:             &MTLSAuthSpec{},
-				APIKeyAuth:           &APIKeyAuthSpec{},
-				CodecServer:          &CodecServerSpec{CustomErrorMessage: &CodecServerCustomErrorMessage{}},
+				MTLSAuth:             &v1alpha1.MTLSAuthSpec{},
+				APIKeyAuth:           &v1alpha1.APIKeyAuthSpec{},
+				CodecServer:          &v1alpha1.CodecServerSpec{CustomErrorMessage: &v1alpha1.CodecServerCustomErrorMessage{}},
 				Lifecycle:            &cloudcommon.LifecycleSpec{},
-				HighAvailability:     &HighAvailabilitySpec{},
-				Fairness:             &FairnessSpec{},
-				EncryptionValidation: &EncryptionValidationSpec{Mode: EncryptionValidationModeDisabled},
+				HighAvailability:     &v1alpha1.HighAvailabilitySpec{},
+				Fairness:             &v1alpha1.FairnessSpec{},
+				EncryptionValidation: &v1alpha1.EncryptionValidationSpec{Mode: v1alpha1.EncryptionValidationModeDisabled},
 			},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(tt *testing.T) {
-			var got Namespace
+			var got v1alpha1.Namespace
 			got.FromProto(namespaceWithSpec(tc.spec).ToProto())
 			require.Equal(tt, tc.spec, got.Spec)
 		})
@@ -339,7 +340,7 @@ func TestCapacityFromProto(t *testing.T) {
 	cases := []struct {
 		name string
 		in   *tcloudnamespacev1.CapacitySpec
-		exp  *CapacitySpec
+		exp  *v1alpha1.CapacitySpec
 	}{
 		{
 			name: "nil",
@@ -355,7 +356,7 @@ func TestCapacityFromProto(t *testing.T) {
 					OnDemand: &tcloudnamespacev1.CapacitySpec_OnDemand{},
 				},
 			},
-			exp: &CapacitySpec{OnDemand: &OnDemandCapacity{}},
+			exp: &v1alpha1.CapacitySpec{OnDemand: &v1alpha1.OnDemandCapacity{}},
 		},
 		{
 			name: "provisioned truncates fractional TRUs",
@@ -364,14 +365,17 @@ func TestCapacityFromProto(t *testing.T) {
 					Provisioned: &tcloudnamespacev1.CapacitySpec_Provisioned{Value: 2.9},
 				},
 			},
-			exp: &CapacitySpec{
-				Provisioned: &ProvisionedCapacity{Value: 2},
+			exp: &v1alpha1.CapacitySpec{
+				Provisioned: &v1alpha1.ProvisionedCapacity{Value: 2},
 			},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(tt *testing.T) {
-			require.Equal(tt, tc.exp, capacityFromProto(tc.in))
+			// Go through v1alpha1.NamespaceSpec, which decides when Capacity is nil.
+			var got v1alpha1.NamespaceSpec
+			got.FromProto(&tcloudnamespacev1.NamespaceSpec{CapacitySpec: tc.in})
+			require.Equal(tt, tc.exp, got.Capacity)
 		})
 	}
 }
@@ -379,7 +383,7 @@ func TestCapacityFromProto(t *testing.T) {
 func TestCapacityToProto(t *testing.T) {
 	cases := []struct {
 		name string
-		in   *CapacitySpec
+		in   *v1alpha1.CapacitySpec
 		exp  *tcloudnamespacev1.CapacitySpec
 	}{
 		{
@@ -387,11 +391,11 @@ func TestCapacityToProto(t *testing.T) {
 		},
 		{
 			name: "no mode set",
-			in:   &CapacitySpec{},
+			in:   &v1alpha1.CapacitySpec{},
 		},
 		{
 			name: "on demand",
-			in:   &CapacitySpec{OnDemand: &OnDemandCapacity{}},
+			in:   &v1alpha1.CapacitySpec{OnDemand: &v1alpha1.OnDemandCapacity{}},
 			exp: &tcloudnamespacev1.CapacitySpec{
 				Spec: &tcloudnamespacev1.CapacitySpec_OnDemand_{
 					OnDemand: &tcloudnamespacev1.CapacitySpec_OnDemand{},
@@ -400,8 +404,8 @@ func TestCapacityToProto(t *testing.T) {
 		},
 		{
 			name: "provisioned",
-			in: &CapacitySpec{
-				Provisioned: &ProvisionedCapacity{Value: 8},
+			in: &v1alpha1.CapacitySpec{
+				Provisioned: &v1alpha1.ProvisionedCapacity{Value: 8},
 			},
 			exp: &tcloudnamespacev1.CapacitySpec{
 				Spec: &tcloudnamespacev1.CapacitySpec_Provisioned_{
@@ -412,89 +416,95 @@ func TestCapacityToProto(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(tt *testing.T) {
-			got := capacityToProto(tc.in)
+			got := tc.in.ToProto()
 			require.True(tt, proto.Equal(tc.exp, got), "expected %v, got %v", tc.exp, got)
 		})
 	}
 }
 
 func TestCodecServerFromProto_CustomErrorMessageWithoutDefault(t *testing.T) {
-	got := codecServerFromProto(&tcloudnamespacev1.CodecServerSpec{
+	var got v1alpha1.CodecServerSpec
+	got.FromProto(&tcloudnamespacev1.CodecServerSpec{
 		Endpoint:           "https://codec.example.com",
 		CustomErrorMessage: &tcloudnamespacev1.CodecServerSpec_CustomErrorMessage{},
 	})
-	require.Equal(t, &CodecServerSpec{
+	require.Equal(t, v1alpha1.CodecServerSpec{
 		Endpoint:           "https://codec.example.com",
-		CustomErrorMessage: &CodecServerCustomErrorMessage{},
+		CustomErrorMessage: &v1alpha1.CodecServerCustomErrorMessage{},
 	}, got)
 }
 
 func TestSubMessageConverters_Nil(t *testing.T) {
 	require := require.New(t)
 
-	require.Nil(replicasFromProto(nil))
-	require.Nil(replicasFromProto([]*tcloudnamespacev1.ReplicaSpec{}))
-	require.Nil(mtlsAuthFromProto(nil))
-	require.Nil(apiKeyAuthFromProto(nil))
-	require.Nil(codecServerFromProto(nil))
-	require.Nil(lifecycleFromProto(nil))
-	require.Nil(highAvailabilityFromProto(nil))
-	require.Nil(fairnessFromProto(nil))
-	require.Nil(encryptionValidationFromProto(nil))
-	require.Nil(searchAttributesFromProto(nil))
+	require.Nil(v1alpha1.ReplicasFromProto(nil))
+	require.Nil(v1alpha1.ReplicasFromProto([]*tcloudnamespacev1.ReplicaSpec{}))
+	require.Nil(v1alpha1.LifecycleFromProto(nil))
+	require.Nil(v1alpha1.SearchAttributesFromProto(nil))
 
-	require.Nil(replicasToProto(nil))
-	require.Nil(replicasToProto([]ReplicaSpec{}))
-	require.Nil(mtlsAuthToProto(nil))
-	require.Nil(apiKeyAuthToProto(nil))
-	require.Nil(codecServerToProto(nil))
-	require.Nil(lifecycleToProto(nil))
-	require.Nil(highAvailabilityToProto(nil))
-	require.Nil(fairnessToProto(nil))
-	require.Nil(encryptionValidationToProto(nil))
-	require.Nil(searchAttributesToProto(nil))
+	require.Nil(v1alpha1.ReplicasToProto(nil))
+	require.Nil(v1alpha1.ReplicasToProto([]v1alpha1.ReplicaSpec{}))
+	require.Nil(v1alpha1.LifecycleToProto(nil))
+	require.Nil(v1alpha1.SearchAttributesToProto(nil))
+
+	// ToProto methods are called on optional fields, so they must accept a nil
+	// receiver. Nil handling for FromProto is the caller's job and is covered
+	// by TestNamespaceFromProto_Spec.
+	require.Nil((*v1alpha1.ReplicaSpec)(nil).ToProto())
+	require.Nil((*v1alpha1.MTLSAuthSpec)(nil).ToProto())
+	require.Nil((*v1alpha1.CertificateFilterSpec)(nil).ToProto())
+	require.Nil((*v1alpha1.APIKeyAuthSpec)(nil).ToProto())
+	require.Nil((*v1alpha1.CodecServerSpec)(nil).ToProto())
+	require.Nil((*v1alpha1.CodecServerCustomErrorMessage)(nil).ToProto())
+	require.Nil((*v1alpha1.CodecServerErrorMessage)(nil).ToProto())
+	require.Nil((*v1alpha1.HighAvailabilitySpec)(nil).ToProto())
+	require.Nil((*v1alpha1.CapacitySpec)(nil).ToProto())
+	require.Nil((*v1alpha1.OnDemandCapacity)(nil).ToProto())
+	require.Nil((*v1alpha1.ProvisionedCapacity)(nil).ToProto())
+	require.Nil((*v1alpha1.FairnessSpec)(nil).ToProto())
+	require.Nil((*v1alpha1.EncryptionValidationSpec)(nil).ToProto())
 }
 
 func TestSearchAttributeTypeConversion(t *testing.T) {
 	pairs := []struct {
 		proto tcloudnamespacev1.NamespaceSpec_SearchAttributeType
-		cr    SearchAttributeType
+		cr    v1alpha1.SearchAttributeType
 	}{
-		{tcloudnamespacev1.NamespaceSpec_SEARCH_ATTRIBUTE_TYPE_TEXT, SearchAttributeTypeText},
-		{tcloudnamespacev1.NamespaceSpec_SEARCH_ATTRIBUTE_TYPE_KEYWORD, SearchAttributeTypeKeyword},
-		{tcloudnamespacev1.NamespaceSpec_SEARCH_ATTRIBUTE_TYPE_INT, SearchAttributeTypeInt},
-		{tcloudnamespacev1.NamespaceSpec_SEARCH_ATTRIBUTE_TYPE_DOUBLE, SearchAttributeTypeDouble},
-		{tcloudnamespacev1.NamespaceSpec_SEARCH_ATTRIBUTE_TYPE_BOOL, SearchAttributeTypeBool},
-		{tcloudnamespacev1.NamespaceSpec_SEARCH_ATTRIBUTE_TYPE_DATETIME, SearchAttributeTypeDatetime},
-		{tcloudnamespacev1.NamespaceSpec_SEARCH_ATTRIBUTE_TYPE_KEYWORD_LIST, SearchAttributeTypeKeywordList},
+		{tcloudnamespacev1.NamespaceSpec_SEARCH_ATTRIBUTE_TYPE_TEXT, v1alpha1.SearchAttributeTypeText},
+		{tcloudnamespacev1.NamespaceSpec_SEARCH_ATTRIBUTE_TYPE_KEYWORD, v1alpha1.SearchAttributeTypeKeyword},
+		{tcloudnamespacev1.NamespaceSpec_SEARCH_ATTRIBUTE_TYPE_INT, v1alpha1.SearchAttributeTypeInt},
+		{tcloudnamespacev1.NamespaceSpec_SEARCH_ATTRIBUTE_TYPE_DOUBLE, v1alpha1.SearchAttributeTypeDouble},
+		{tcloudnamespacev1.NamespaceSpec_SEARCH_ATTRIBUTE_TYPE_BOOL, v1alpha1.SearchAttributeTypeBool},
+		{tcloudnamespacev1.NamespaceSpec_SEARCH_ATTRIBUTE_TYPE_DATETIME, v1alpha1.SearchAttributeTypeDatetime},
+		{tcloudnamespacev1.NamespaceSpec_SEARCH_ATTRIBUTE_TYPE_KEYWORD_LIST, v1alpha1.SearchAttributeTypeKeywordList},
 	}
 	for _, p := range pairs {
 		t.Run(string(p.cr), func(tt *testing.T) {
 			require := require.New(tt)
 			require.Equal(
-				map[string]SearchAttributeType{"a": p.cr},
-				searchAttributesFromProto(map[string]tcloudnamespacev1.NamespaceSpec_SearchAttributeType{"a": p.proto}),
+				map[string]v1alpha1.SearchAttributeType{"a": p.cr},
+				v1alpha1.SearchAttributesFromProto(map[string]tcloudnamespacev1.NamespaceSpec_SearchAttributeType{"a": p.proto}),
 			)
 			require.Equal(
 				map[string]tcloudnamespacev1.NamespaceSpec_SearchAttributeType{"a": p.proto},
-				searchAttributesToProto(map[string]SearchAttributeType{"a": p.cr}),
+				v1alpha1.SearchAttributesToProto(map[string]v1alpha1.SearchAttributeType{"a": p.cr}),
 			)
 		})
 	}
 
 	t.Run("unspecified and unknown from proto", func(tt *testing.T) {
-		got := searchAttributesFromProto(map[string]tcloudnamespacev1.NamespaceSpec_SearchAttributeType{
+		got := v1alpha1.SearchAttributesFromProto(map[string]tcloudnamespacev1.NamespaceSpec_SearchAttributeType{
 			"unspecified": tcloudnamespacev1.NamespaceSpec_SEARCH_ATTRIBUTE_TYPE_UNSPECIFIED,
 			"unknown":     tcloudnamespacev1.NamespaceSpec_SearchAttributeType(99),
 		})
-		require.Equal(tt, map[string]SearchAttributeType{
+		require.Equal(tt, map[string]v1alpha1.SearchAttributeType{
 			"unspecified": "",
 			"unknown":     "99",
 		}, got)
 	})
 
 	t.Run("unknown to proto", func(tt *testing.T) {
-		got := searchAttributesToProto(map[string]SearchAttributeType{"a": "Bogus"})
+		got := v1alpha1.SearchAttributesToProto(map[string]v1alpha1.SearchAttributeType{"a": "Bogus"})
 		require.Equal(tt, map[string]tcloudnamespacev1.NamespaceSpec_SearchAttributeType{
 			"a": tcloudnamespacev1.NamespaceSpec_SEARCH_ATTRIBUTE_TYPE_UNSPECIFIED,
 		}, got)
@@ -502,31 +512,37 @@ func TestSearchAttributeTypeConversion(t *testing.T) {
 }
 
 func TestEncryptionValidationModeConversion(t *testing.T) {
+	fromProto := func(in tcloudnamespacev1.EncryptionValidationSpec_EncryptionValidationMode) v1alpha1.EncryptionValidationMode {
+		var m v1alpha1.EncryptionValidationMode
+		m.FromProto(in)
+		return m
+	}
+
 	pairs := []struct {
 		proto tcloudnamespacev1.EncryptionValidationSpec_EncryptionValidationMode
-		cr    EncryptionValidationMode
+		cr    v1alpha1.EncryptionValidationMode
 	}{
-		{tcloudnamespacev1.EncryptionValidationSpec_ENCRYPTION_VALIDATION_MODE_DISABLED, EncryptionValidationModeDisabled},
-		{tcloudnamespacev1.EncryptionValidationSpec_ENCRYPTION_VALIDATION_MODE_WARN, EncryptionValidationModeWarn},
-		{tcloudnamespacev1.EncryptionValidationSpec_ENCRYPTION_VALIDATION_MODE_DENY, EncryptionValidationModeDeny},
+		{tcloudnamespacev1.EncryptionValidationSpec_ENCRYPTION_VALIDATION_MODE_DISABLED, v1alpha1.EncryptionValidationModeDisabled},
+		{tcloudnamespacev1.EncryptionValidationSpec_ENCRYPTION_VALIDATION_MODE_WARN, v1alpha1.EncryptionValidationModeWarn},
+		{tcloudnamespacev1.EncryptionValidationSpec_ENCRYPTION_VALIDATION_MODE_DENY, v1alpha1.EncryptionValidationModeDeny},
 	}
 	for _, p := range pairs {
 		t.Run(string(p.cr), func(tt *testing.T) {
 			require := require.New(tt)
-			require.Equal(p.cr, encryptionValidationModeFromProto(p.proto))
-			require.Equal(p.proto, encryptionValidationModeToProto(p.cr))
+			require.Equal(p.cr, fromProto(p.proto))
+			require.Equal(p.proto, p.cr.ToProto())
 		})
 	}
 
 	t.Run("unspecified and unknown from proto", func(tt *testing.T) {
 		require := require.New(tt)
 		require.Equal(
-			EncryptionValidationMode(""),
-			encryptionValidationModeFromProto(tcloudnamespacev1.EncryptionValidationSpec_ENCRYPTION_VALIDATION_MODE_UNSPECIFIED),
+			v1alpha1.EncryptionValidationMode(""),
+			fromProto(tcloudnamespacev1.EncryptionValidationSpec_ENCRYPTION_VALIDATION_MODE_UNSPECIFIED),
 		)
 		require.Equal(
-			EncryptionValidationMode("99"),
-			encryptionValidationModeFromProto(tcloudnamespacev1.EncryptionValidationSpec_EncryptionValidationMode(99)),
+			v1alpha1.EncryptionValidationMode("99"),
+			fromProto(tcloudnamespacev1.EncryptionValidationSpec_EncryptionValidationMode(99)),
 		)
 	})
 
@@ -534,11 +550,11 @@ func TestEncryptionValidationModeConversion(t *testing.T) {
 		require := require.New(tt)
 		require.Equal(
 			tcloudnamespacev1.EncryptionValidationSpec_ENCRYPTION_VALIDATION_MODE_UNSPECIFIED,
-			encryptionValidationModeToProto(""),
+			v1alpha1.EncryptionValidationMode("").ToProto(),
 		)
 		require.Equal(
 			tcloudnamespacev1.EncryptionValidationSpec_ENCRYPTION_VALIDATION_MODE_UNSPECIFIED,
-			encryptionValidationModeToProto("Bogus"),
+			v1alpha1.EncryptionValidationMode("Bogus").ToProto(),
 		)
 	})
 }
