@@ -34,21 +34,35 @@ type Namespace struct {
 	Status NamespaceStatus `json:"status,omitempty"`
 }
 
-// FromProto sets the spec and status from the supplied Temporal Cloud
-// Namespace. Project, tags and the status fields live on the outer Namespace
-// message rather than its spec, so they are set here. Object metadata is left
+// FromProto returns a Namespace from the supplied Temporal Cloud Namespace
+// proto message.
+//
+// Project, tags and the status fields live on the outer Namespace message
+// rather than its spec, so they are set here. Object metadata is left
 // unchanged.
-func (n *Namespace) FromProto(in *tcloudnamespacev1.Namespace) {
-	n.Spec.FromProto(in.GetSpec())
-	n.Spec.Project = in.GetProjectId()
-	n.Spec.Tags = maps.Clone(in.GetTags())
+func (n Namespace) FromProto(in *tcloudnamespacev1.Namespace) *Namespace {
+	out := Namespace{
+		TypeMeta:   n.TypeMeta,
+		ObjectMeta: n.ObjectMeta,
+	}
 
-	n.Status.ID = in.GetNamespace()
-	n.Status.ResourceVersion = in.GetResourceVersion()
-	n.Status.State.FromProto(in.GetState())
-	n.Status.AsyncOperationID = in.GetAsyncOperationId()
-	n.Status.CreatedTime = transform.TimeFromProto(in.GetCreatedTime())
-	n.Status.LastModifiedTime = transform.TimeFromProto(in.GetLastModifiedTime())
+	if in == nil {
+		return &out
+	}
+
+	var spec NamespaceSpec
+	out.Spec = spec.FromProto(in.GetSpec())
+	out.Spec.Project = in.GetProjectId()
+	out.Spec.Tags = maps.Clone(in.GetTags())
+
+	out.Status.ID = in.GetNamespace()
+	out.Status.ResourceVersion = in.GetResourceVersion()
+	out.Status.State.FromProto(in.GetState())
+	out.Status.AsyncOperationID = in.GetAsyncOperationId()
+	out.Status.CreatedTime = transform.TimeFromProto(in.GetCreatedTime())
+	out.Status.LastModifiedTime = transform.TimeFromProto(in.GetLastModifiedTime())
+
+	return &out
 }
 
 // ToProto returns the Temporal Cloud Namespace that represents the spec. It
@@ -145,71 +159,44 @@ type NamespaceSpec struct {
 	Description string `json:"description,omitempty"`
 }
 
-// FromProto sets the spec from the supplied Temporal Cloud NamespaceSpec.
-// Project and tags are not part of the Temporal Cloud NamespaceSpec, so they
-// are left unchanged; [Namespace.FromProto] sets them.
-func (s *NamespaceSpec) FromProto(in *tcloudnamespacev1.NamespaceSpec) {
-	s.Replicas = ReplicasFromProto(in.GetReplicas())
-	s.RetentionDays = in.GetRetentionDays()
-
-	if in.GetMtlsAuth() == nil {
-		s.MTLSAuth = nil
-	} else {
-		s.MTLSAuth = &MTLSAuthSpec{}
-		s.MTLSAuth.FromProto(in.GetMtlsAuth())
+// FromProto returns a NamespaceSpec constructed from the supplied Temporal
+// Cloud NamespaceSpec.
+func (s NamespaceSpec) FromProto(in *tcloudnamespacev1.NamespaceSpec) NamespaceSpec {
+	if in == nil {
+		return NamespaceSpec{}
 	}
 
-	if in.GetApiKeyAuth() == nil {
-		s.APIKeyAuth = nil
-	} else {
-		s.APIKeyAuth = &APIKeyAuthSpec{}
-		s.APIKeyAuth.FromProto(in.GetApiKeyAuth())
+	out := NamespaceSpec{
+		Description:         in.GetDescription(),
+		Replicas:            ReplicasFromProto(in.GetReplicas()),
+		RetentionDays:       in.GetRetentionDays(),
+		SearchAttributes:    SearchAttributesFromProto(in.GetSearchAttributes()),
+		Lifecycle:           LifecycleFromProto(in.GetLifecycle()),
+		ConnectivityRuleIDs: slices.Clone(in.GetConnectivityRuleIds()),
 	}
 
-	s.SearchAttributes = SearchAttributesFromProto(in.GetSearchAttributes())
+	var mtlsAuthSpec MTLSAuthSpec
+	out.MTLSAuth = mtlsAuthSpec.FromProto(in.GetMtlsAuth())
 
-	if in.GetCodecServer() == nil {
-		s.CodecServer = nil
-	} else {
-		s.CodecServer = &CodecServerSpec{}
-		s.CodecServer.FromProto(in.GetCodecServer())
-	}
+	var apiKeyAuthSpec APIKeyAuthSpec
+	out.APIKeyAuth = apiKeyAuthSpec.FromProto(in.GetApiKeyAuth())
 
-	s.Lifecycle = LifecycleFromProto(in.GetLifecycle())
+	var codecSpec CodecServerSpec
+	out.CodecServer = codecSpec.FromProto(in.GetCodecServer())
 
-	if in.GetHighAvailability() == nil {
-		s.HighAvailability = nil
-	} else {
-		s.HighAvailability = &HighAvailabilitySpec{}
-		s.HighAvailability.FromProto(in.GetHighAvailability())
-	}
+	var haSpec HighAvailabilitySpec
+	out.HighAvailability = haSpec.FromProto(in.GetHighAvailability())
 
-	s.ConnectivityRuleIDs = slices.Clone(in.GetConnectivityRuleIds())
+	var capSpec CapacitySpec
+	out.Capacity = capSpec.FromProto(in.GetCapacitySpec())
 
-	// A capacity spec with no mode set carries nothing the CR can represent, so
-	// it is treated as unset.
-	if c := in.GetCapacitySpec(); c.GetOnDemand() == nil && c.GetProvisioned() == nil {
-		s.Capacity = nil
-	} else {
-		s.Capacity = &CapacitySpec{}
-		s.Capacity.FromProto(c)
-	}
+	var fairSpec FairnessSpec
+	out.Fairness = fairSpec.FromProto(in.GetFairness())
 
-	if in.GetFairness() == nil {
-		s.Fairness = nil
-	} else {
-		s.Fairness = &FairnessSpec{}
-		s.Fairness.FromProto(in.GetFairness())
-	}
+	var encValSpec EncryptionValidationSpec
+	out.EncryptionValidation = encValSpec.FromProto(in.GetEncryptionValidation())
 
-	if in.GetEncryptionValidation() == nil {
-		s.EncryptionValidation = nil
-	} else {
-		s.EncryptionValidation = &EncryptionValidationSpec{}
-		s.EncryptionValidation.FromProto(in.GetEncryptionValidation())
-	}
-
-	s.Description = in.GetDescription()
+	return out
 }
 
 // toProto returns the Temporal Cloud NamespaceSpec that represents the spec,
@@ -311,10 +298,14 @@ type MTLSAuthSpec struct {
 	CertificateFilters []CertificateFilterSpec `json:"certificateFilters,omitempty"`
 }
 
-// FromProto sets the spec from the supplied Temporal Cloud MtlsAuthSpec. m must
-// not be nil; callers allocate it when the proto field is set.
-func (m *MTLSAuthSpec) FromProto(in *tcloudnamespacev1.MtlsAuthSpec) {
-	*m = MTLSAuthSpec{
+// FromProto returns an MTLSAuthSpec constructed from the supplied Temporal
+// Cloud MtlsAuthSpec.
+func (m MTLSAuthSpec) FromProto(in *tcloudnamespacev1.MtlsAuthSpec) *MTLSAuthSpec {
+	if in == nil {
+		return nil
+	}
+
+	out := MTLSAuthSpec{
 		Enabled: in.GetEnabled(),
 		// TODO: confirm Temporal Cloud returns raw PEM here, not base64.
 		AcceptedClientCA: string(in.GetAcceptedClientCa()),
@@ -322,8 +313,9 @@ func (m *MTLSAuthSpec) FromProto(in *tcloudnamespacev1.MtlsAuthSpec) {
 	for _, f := range in.GetCertificateFilters() {
 		var filter CertificateFilterSpec
 		filter.FromProto(f)
-		m.CertificateFilters = append(m.CertificateFilters, filter)
+		out.CertificateFilters = append(out.CertificateFilters, filter)
 	}
+	return &out
 }
 
 // ToProto returns the Temporal Cloud MtlsAuthSpec that represents the spec. It
@@ -396,10 +388,15 @@ type APIKeyAuthSpec struct {
 	Enabled bool `json:"enabled"`
 }
 
-// FromProto sets the spec from the supplied Temporal Cloud ApiKeyAuthSpec. a
-// must not be nil; callers allocate it when the proto field is set.
-func (a *APIKeyAuthSpec) FromProto(in *tcloudnamespacev1.ApiKeyAuthSpec) {
-	*a = APIKeyAuthSpec{Enabled: in.GetEnabled()}
+// FromProto returns an APIKeyAuthSpec from the supplied Temporal Cloud ApiKeyAuthSpec.
+func (a APIKeyAuthSpec) FromProto(in *tcloudnamespacev1.ApiKeyAuthSpec) *APIKeyAuthSpec {
+	if in == nil {
+		return nil
+	}
+
+	return &APIKeyAuthSpec{
+		Enabled: in.GetEnabled(),
+	}
 }
 
 // ToProto returns the Temporal Cloud ApiKeyAuthSpec that represents the spec.
@@ -542,18 +539,22 @@ type CodecServerSpec struct {
 	CustomErrorMessage *CodecServerCustomErrorMessage `json:"customErrorMessage,omitempty"`
 }
 
-// FromProto sets the spec from the supplied Temporal Cloud CodecServerSpec. c
-// must not be nil; callers allocate it when the proto field is set.
-func (c *CodecServerSpec) FromProto(in *tcloudnamespacev1.CodecServerSpec) {
-	*c = CodecServerSpec{
+// FromProto returns a CodecServerSpec from the supplied Temporal Cloud
+// CodecServerSpec.
+func (c CodecServerSpec) FromProto(in *tcloudnamespacev1.CodecServerSpec) *CodecServerSpec {
+	if in == nil {
+		return nil
+	}
+	out := CodecServerSpec{
 		Endpoint:                      in.GetEndpoint(),
 		PassAccessToken:               in.GetPassAccessToken(),
 		IncludeCrossOriginCredentials: in.GetIncludeCrossOriginCredentials(),
 	}
-	if cem := in.GetCustomErrorMessage(); cem != nil {
-		c.CustomErrorMessage = &CodecServerCustomErrorMessage{}
-		c.CustomErrorMessage.FromProto(cem)
-	}
+
+	var cem CodecServerCustomErrorMessage
+	out.CustomErrorMessage = cem.FromProto(in.GetCustomErrorMessage())
+
+	return &out
 }
 
 // ToProto returns the Temporal Cloud CodecServerSpec that represents the spec.
@@ -580,17 +581,21 @@ type CodecServerCustomErrorMessage struct {
 	Default *CodecServerErrorMessage `json:"default,omitempty"`
 }
 
-// FromProto sets the custom error message from the supplied Temporal Cloud
-// CodecServerSpec_CustomErrorMessage. c must not be nil; callers allocate it
-// when the proto field is set.
-func (c *CodecServerCustomErrorMessage) FromProto(
+// FromProto returns a CodecServerCustomErrorMessage from the supplied Temporal
+// Cloud CodecServerSpec_CustomErrorMessage.
+func (c CodecServerCustomErrorMessage) FromProto(
 	in *tcloudnamespacev1.CodecServerSpec_CustomErrorMessage,
-) {
-	*c = CodecServerCustomErrorMessage{}
-	if def := in.GetDefault(); def != nil {
-		c.Default = &CodecServerErrorMessage{}
-		c.Default.FromProto(def)
+) *CodecServerCustomErrorMessage {
+	if in == nil {
+		return nil
 	}
+
+	out := CodecServerCustomErrorMessage{}
+
+	var def CodecServerErrorMessage
+	out.Default = def.FromProto(in.GetDefault())
+
+	return &out
 }
 
 // ToProto returns the Temporal Cloud CodecServerSpec_CustomErrorMessage that
@@ -617,13 +622,15 @@ type CodecServerErrorMessage struct {
 	Link string `json:"link,omitempty"`
 }
 
-// FromProto sets the error message from the supplied Temporal Cloud
-// CodecServerSpec_CustomErrorMessage_ErrorMessage. e must not be nil; callers
-// allocate it when the proto field is set.
-func (e *CodecServerErrorMessage) FromProto(
+// FromProto returns a CodecServerErrorMessage constructed from the supplied
+// Temporal Cloud CodecServerSpec_CustomErrorMessage_ErrorMessage.
+func (e CodecServerErrorMessage) FromProto(
 	in *tcloudnamespacev1.CodecServerSpec_CustomErrorMessage_ErrorMessage,
-) {
-	*e = CodecServerErrorMessage{
+) *CodecServerErrorMessage {
+	if in == nil {
+		return nil
+	}
+	return &CodecServerErrorMessage{
 		Message: in.GetMessage(),
 		Link:    in.GetLink(),
 	}
@@ -694,11 +701,13 @@ type HighAvailabilitySpec struct {
 	DisablePassivePollerForwarding bool `json:"disablePassivePollerForwarding,omitempty"`
 }
 
-// FromProto sets the spec from the supplied Temporal Cloud
-// HighAvailabilitySpec. h must not be nil; callers allocate it when the proto
-// field is set.
-func (h *HighAvailabilitySpec) FromProto(in *tcloudnamespacev1.HighAvailabilitySpec) {
-	*h = HighAvailabilitySpec{
+// FromProto returns a HighAvailabilitySpec created from the supplied Temporal
+// Cloud HighAvailabilitySpec.
+func (h HighAvailabilitySpec) FromProto(in *tcloudnamespacev1.HighAvailabilitySpec) *HighAvailabilitySpec {
+	if in == nil {
+		return nil
+	}
+	return &HighAvailabilitySpec{
 		DisableManagedFailover:         in.GetDisableManagedFailover(),
 		DisablePassivePollerForwarding: in.GetDisablePassivePollerForwarding(),
 	}
@@ -730,18 +739,26 @@ type CapacitySpec struct {
 	Provisioned *ProvisionedCapacity `json:"provisioned,omitempty"`
 }
 
-// FromProto sets the spec from the supplied Temporal Cloud CapacitySpec. c
-// must not be nil; callers allocate it when the proto sets a capacity mode.
-func (c *CapacitySpec) FromProto(in *tcloudnamespacev1.CapacitySpec) {
-	*c = CapacitySpec{}
-	switch {
-	case in.GetOnDemand() != nil:
-		c.OnDemand = &OnDemandCapacity{}
-		c.OnDemand.FromProto(in.GetOnDemand())
-	case in.GetProvisioned() != nil:
-		c.Provisioned = &ProvisionedCapacity{}
-		c.Provisioned.FromProto(in.GetProvisioned())
+// FromProto returns a CapacitySpec created from the supplied Temporal Cloud
+// CapacitySpec.
+func (c CapacitySpec) FromProto(in *tcloudnamespacev1.CapacitySpec) *CapacitySpec {
+	if in == nil {
+		return nil
 	}
+	// A capacity spec with no mode set carries nothing the CR can represent, so
+	// it is treated as unset.
+	if in.GetOnDemand() == nil && in.GetProvisioned() == nil {
+		return nil
+	}
+	out := CapacitySpec{}
+
+	var odCap OnDemandCapacity
+	out.OnDemand = odCap.FromProto(in.GetOnDemand())
+
+	var provCap ProvisionedCapacity
+	out.Provisioned = provCap.FromProto(in.GetProvisioned())
+
+	return &out
 }
 
 // ToProto returns the Temporal Cloud CapacitySpec that represents the spec. It
@@ -771,10 +788,13 @@ func (c *CapacitySpec) ToProto() *tcloudnamespacev1.CapacitySpec {
 // OnDemandCapacity selects the on-demand capacity mode.
 type OnDemandCapacity struct{}
 
-// FromProto sets the capacity from the supplied Temporal Cloud
-// CapacitySpec_OnDemand. The proto has no fields, so there is nothing to copy.
-func (o *OnDemandCapacity) FromProto(*tcloudnamespacev1.CapacitySpec_OnDemand) {
-	*o = OnDemandCapacity{}
+// FromProto returns an OnDemandCapacity from the supplied Temporal Cloud
+// CapacitySpec_OnDemand.
+func (o OnDemandCapacity) FromProto(in *tcloudnamespacev1.CapacitySpec_OnDemand) *OnDemandCapacity {
+	if in == nil {
+		return nil
+	}
+	return &OnDemandCapacity{}
 }
 
 // ToProto returns the Temporal Cloud CapacitySpec_OnDemand that represents the
@@ -794,10 +814,13 @@ type ProvisionedCapacity struct {
 	Value int32 `json:"value"`
 }
 
-// FromProto sets the capacity from the supplied Temporal Cloud
+// FromProto returns the ProvisionedCapacity from the supplied Temporal Cloud
 // CapacitySpec_Provisioned.
-func (p *ProvisionedCapacity) FromProto(in *tcloudnamespacev1.CapacitySpec_Provisioned) {
-	*p = ProvisionedCapacity{
+func (p ProvisionedCapacity) FromProto(in *tcloudnamespacev1.CapacitySpec_Provisioned) *ProvisionedCapacity {
+	if in == nil {
+		return nil
+	}
+	return &ProvisionedCapacity{
 		// The proto carries TRUs as a float64; the CR uses whole TRUs.
 		Value: int32(in.GetValue()),
 	}
@@ -820,10 +843,13 @@ type FairnessSpec struct {
 	TaskQueueFairnessEnabled bool `json:"taskQueueFairnessEnabled,omitempty"`
 }
 
-// FromProto sets the spec from the supplied Temporal Cloud FairnessSpec. f
-// must not be nil; callers allocate it when the proto field is set.
-func (f *FairnessSpec) FromProto(in *tcloudnamespacev1.FairnessSpec) {
-	*f = FairnessSpec{
+// FromProto returns a FairnessSpec from the supplied Temporal Cloud
+// FairnessSpec.
+func (f FairnessSpec) FromProto(in *tcloudnamespacev1.FairnessSpec) *FairnessSpec {
+	if in == nil {
+		return nil
+	}
+	return &FairnessSpec{
 		TaskQueueFairnessEnabled: in.GetTaskQueueFairnessEnabled(),
 	}
 }
@@ -867,17 +893,23 @@ type EncryptionValidationSpec struct {
 	InspectFailure bool `json:"inspectFailure,omitempty"`
 }
 
-// FromProto sets the spec from the supplied Temporal Cloud
-// EncryptionValidationSpec. e must not be nil; callers allocate it when the
-// proto field is set.
-func (e *EncryptionValidationSpec) FromProto(in *tcloudnamespacev1.EncryptionValidationSpec) {
-	*e = EncryptionValidationSpec{
+// FromProto returns an EncryptionValidationSpec from the supplied Temporal
+// Cloud EncryptionValidationSpec.
+func (e EncryptionValidationSpec) FromProto(in *tcloudnamespacev1.EncryptionValidationSpec) *EncryptionValidationSpec {
+	if in == nil {
+		return nil
+	}
+	out := EncryptionValidationSpec{
 		MetadataKey:    in.GetMetadataKey(),
 		MetadataValues: slices.Clone(in.GetMetadataValues()),
 		InspectHeader:  in.GetInspectHeader(),
 		InspectFailure: in.GetInspectFailure(),
 	}
-	e.Mode.FromProto(in.GetMode())
+
+	var mode EncryptionValidationMode
+	out.Mode = mode.FromProto(in.GetMode())
+
+	return &out
 }
 
 // ToProto returns the Temporal Cloud EncryptionValidationSpec that represents
@@ -910,22 +942,22 @@ const (
 	EncryptionValidationModeDeny EncryptionValidationMode = "Deny"
 )
 
-// FromProto sets the mode from the supplied Temporal Cloud encryption
-// validation mode. Unknown modes keep their proto enum name.
-func (m *EncryptionValidationMode) FromProto(
+// FromProto returns the EncryptionValidationMode from the supplied Temporal
+// Cloud encryption validation mode.
+func (m EncryptionValidationMode) FromProto(
 	in tcloudnamespacev1.EncryptionValidationSpec_EncryptionValidationMode,
-) {
+) EncryptionValidationMode {
 	switch in {
 	case tcloudnamespacev1.EncryptionValidationSpec_ENCRYPTION_VALIDATION_MODE_UNSPECIFIED:
-		*m = ""
+		return EncryptionValidationMode("")
 	case tcloudnamespacev1.EncryptionValidationSpec_ENCRYPTION_VALIDATION_MODE_DISABLED:
-		*m = EncryptionValidationModeDisabled
+		return EncryptionValidationModeDisabled
 	case tcloudnamespacev1.EncryptionValidationSpec_ENCRYPTION_VALIDATION_MODE_WARN:
-		*m = EncryptionValidationModeWarn
+		return EncryptionValidationModeWarn
 	case tcloudnamespacev1.EncryptionValidationSpec_ENCRYPTION_VALIDATION_MODE_DENY:
-		*m = EncryptionValidationModeDeny
+		return EncryptionValidationModeDeny
 	default:
-		*m = EncryptionValidationMode(in.String())
+		return EncryptionValidationMode(in.String())
 	}
 }
 

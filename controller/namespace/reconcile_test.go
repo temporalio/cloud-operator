@@ -110,10 +110,10 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 	tnsSynced.Status.ID = tnsID
 	tnsSynced.Status.ResourceVersion = "rv-0"
 
-	// cloudNS is the namespace as Temporal Cloud reports it. Its project
+	// protoOutOfSync is the namespace as Temporal Cloud reports it. Its project
 	// differs from the CR's so we can see that latest is mutated to match
 	// Temporal Cloud.
-	cloudNS := &tcloudnamespacev1.Namespace{
+	protoOutOfSync := &tcloudnamespacev1.Namespace{
 		Namespace: tnsID,
 		ProjectId: projectOther,
 		Tags:      map[string]string{"team": "core"},
@@ -127,36 +127,28 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 		AsyncOperationId: "op-1",
 	}
 
-	// withLatest returns a copy of the supplied CR as a types.Resource after
-	// applying mutate, for building the expected latest resource.
-	withLatest := func(
-		cr *tcloudv1alpha1.Namespace,
-		mutate func(*tcloudv1alpha1.Namespace),
-	) types.Resource {
-		ns := cr.DeepCopy()
-		mutate(ns)
-		return namespace.NewResource(ns)
+	nsOutOfSync := tns.DeepCopy()
+	nsOutOfSync.Spec = tcloudv1alpha1.NamespaceSpec{
+		Project:       projectOther,
+		Tags:          map[string]string{"team": "core"},
+		Replicas:      []tcloudv1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}},
+		RetentionDays: 30,
 	}
-	// mappedFromCloud sets the spec and status that cloudNS maps to.
-	mappedFromCloud := func(ns *tcloudv1alpha1.Namespace) {
-		ns.Spec = tcloudv1alpha1.NamespaceSpec{
-			Project:       projectOther,
-			Tags:          map[string]string{"team": "core"},
-			Replicas:      []tcloudv1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}},
-			RetentionDays: 30,
-		}
-		ns.Status.ResourceStatus = cloudcommon.ResourceStatus{
+	nsOutOfSync.Status = tcloudv1alpha1.NamespaceStatus{
+		ResourceStatus: cloudcommon.ResourceStatus{
 			ID:               tnsID,
 			ResourceVersion:  "rv-1",
 			State:            cloudcommon.ResourceStateActive,
 			AsyncOperationID: "op-1",
-		}
+		},
 	}
+
 	// cleared empties the spec and status, which is what ResourceSetLatest
 	// does when the namespace does not exist in Temporal Cloud.
-	cleared := func(ns *tcloudv1alpha1.Namespace) {
-		ns.Spec = tcloudv1alpha1.NamespaceSpec{}
-		ns.Status.ResourceStatus = cloudcommon.ResourceStatus{}
+	cleared := tns.DeepCopy()
+	cleared.Spec = tcloudv1alpha1.NamespaceSpec{}
+	cleared.Status = tcloudv1alpha1.NamespaceStatus{
+		ResourceStatus: cloudcommon.ResourceStatus{},
 	}
 
 	cases := []struct {
@@ -199,11 +191,13 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 			name: "latest is mutated from get namespace",
 			serverOpts: []fakeserver.NewOption{
 				fakeserver.OnGetNamespaceReturn(
-					&tcloudservicev1.GetNamespaceResponse{Namespace: cloudNS}, nil,
+					&tcloudservicev1.GetNamespaceResponse{Namespace: protoOutOfSync}, nil,
 				),
 			},
-			res:    namespace.NewResource(tnsSynced),
-			latest: withLatest(tnsSynced, mappedFromCloud),
+			res: namespace.NewResource(tnsSynced),
+			latest: func() types.Resource {
+				return namespace.NewResource(nsOutOfSync)
+			}(),
 		},
 		{
 			// The namespace was deleted outside of the operator, so latest is
@@ -214,8 +208,10 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 					nil, status.Error(codes.NotFound, "namespace not found"),
 				),
 			},
-			res:    namespace.NewResource(tnsSynced),
-			latest: withLatest(tnsSynced, cleared),
+			res: namespace.NewResource(tnsSynced),
+			latest: func() types.Resource {
+				return namespace.NewResource(cleared)
+			}(),
 		},
 		{
 			name: "fail if tcloud list namespaces errors",
@@ -247,13 +243,15 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 								Namespace: "other-ns.acct1",
 								Spec:      &tcloudnamespacev1.NamespaceSpec{Name: "other-ns"},
 							},
-							cloudNS,
+							protoOutOfSync,
 						},
 					}, nil,
 				),
 			},
-			res:    namespace.NewResource(tns),
-			latest: withLatest(tns, mappedFromCloud),
+			res: namespace.NewResource(tns),
+			latest: func() types.Resource {
+				return namespace.NewResource(nsOutOfSync)
+			}(),
 		},
 		{
 			name: "latest is cleared if not found by name",
@@ -262,8 +260,10 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 					&tcloudservicev1.GetNamespacesResponse{}, nil,
 				),
 			},
-			res:    namespace.NewResource(tns),
-			latest: withLatest(tns, cleared),
+			res: namespace.NewResource(tns),
+			latest: func() types.Resource {
+				return namespace.NewResource(cleared)
+			}(),
 		},
 	}
 	for _, tc := range cases {
