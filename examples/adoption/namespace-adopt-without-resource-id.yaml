@@ -1,0 +1,7 @@
+# Fails: adopting requires the cloud.temporal.io/resource-id annotation.
+apiVersion: cloud.temporal.io/v1alpha1
+kind: Namespace
+metadata:
+  name: adopt-without-resource-id
+  annotations:
+    cloud.temporal.io/adoption-policy: adopt
