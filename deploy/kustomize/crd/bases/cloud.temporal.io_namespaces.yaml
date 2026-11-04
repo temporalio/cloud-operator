@@ -50,7 +50,10 @@ spec:
           metadata:
             type: object
           spec:
-            description: Spec defines the desired state of the Namespace.
+            description: |-
+              Spec defines the desired state of the Namespace. It may be omitted only
+              when adopting an existing Temporal Cloud Namespace, i.e. when the
+              cloud.temporal.io/adoption-policy annotation is "adopt".
             properties:
               apiKeyAuth:
                 description: |-
@@ -294,6 +297,7 @@ spec:
                 description: |-
                   Replicas are the regions where the Namespace is placed.
                   Maps to Temporal Cloud proto `NamespaceSpec.replicas`.
+                  Required and is enforced by the temporal-cloud-namespace-validation admission policy.
                 items:
                   description: ReplicaSpec places a replica of the Namespace in a
                     region.
@@ -316,6 +320,7 @@ spec:
                   RetentionDays is the number of days that closed workflow histories are
                   kept.
                   Maps to Temporal Cloud proto `NamespaceSpec.retention_days`.
+                  Required and is enforced by the temporal-cloud-namespace-validation admission policy.
                 format: int32
                 type: integer
               searchAttributes:
@@ -343,9 +348,6 @@ spec:
                   Tags are key-value pairs to attach to the Namespace.
                   Maps to Temporal Cloud proto `Namespace.tags`.
                 type: object
-            required:
-            - replicas
-            - retentionDays
             type: object
             x-kubernetes-validations:
             - fieldPath: .project
@@ -470,8 +472,6 @@ spec:
                 - Expired
                 type: string
             type: object
-        required:
-        - spec
         type: object
     served: true
     storage: true
