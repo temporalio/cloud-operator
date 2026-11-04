@@ -16,6 +16,11 @@ const (
 	// is a DeletionPolicy.
 	AnnotationKeyDeletionPolicy = AnnotationKeyPrefixTemporalCloud + "deletion-policy"
 
+	// AnnotationKeyAdoptionPolicy asks the controller to adopt an existing
+	// Temporal Cloud resource instead of creating a new one. Its value is an
+	// AdoptionPolicy.
+	AnnotationKeyAdoptionPolicy = AnnotationKeyPrefixTemporalCloud + "adoption-policy"
+
 	// ReasonResourceDeleteFailed is the Stalled condition reason when Temporal
 	// Cloud failed to delete the backend resource.
 	ReasonResourceDeleteFailed = "ResourceDeleteFailed"
@@ -25,6 +30,10 @@ const (
 // deleting a Temporal Cloud resource associated with a CR.
 type DeletionPolicy string
 
+// AdoptionPolicy describes how the controller adopts an existing Temporal
+// Cloud resource.
+type AdoptionPolicy string
+
 const (
 	// DeletionPolicyDelete deletes the Temporal Cloud resource, and removes
 	// the custom resource once Temporal Cloud has finished deleting it.
@@ -32,12 +41,23 @@ const (
 	// DeletionPolicyRetain leaves the Temporal Cloud resource in place and
 	// only removes the custom resource.
 	DeletionPolicyRetain DeletionPolicy = "retain"
+	// AdoptionPolicyAdopt imports an existing Temporal Cloud resource as is.
+	AdoptionPolicyAdopt AdoptionPolicy = "adopt"
+	// AdoptionPolicyAdoptOrCreate adopts the Temporal Cloud resource if it
+	// exists, and creates it otherwise.
+	AdoptionPolicyAdoptOrCreate AdoptionPolicy = "adopt-or-create"
 )
 
 // validDeletionPolicies are the valid DeletionPolicy values.
 var validDeletionPolicies = []string{
 	string(DeletionPolicyRetain),
 	string(DeletionPolicyDelete),
+}
+
+// validAdoptionPolicies are the valid AdoptionPolicy values.
+var validAdoptionPolicies = []string{
+	string(AdoptionPolicyAdopt),
+	string(AdoptionPolicyAdoptOrCreate),
 }
 
 // Validate returns an error if the DeletionPolicy is not one of the valid
@@ -48,6 +68,15 @@ func (p DeletionPolicy) Validate() error {
 	}
 	allowed := strings.Join(validDeletionPolicies, ", ")
 	return fmt.Errorf("invalid deletion policy %q. allowed values: %s", p, allowed)
+}
+
+func (p AdoptionPolicy) Validate() error {
+	if ContainsFold(string(p), validAdoptionPolicies) {
+		return nil
+	}
+	allowed := strings.Join(validAdoptionPolicies, ", ")
+	return fmt.Errorf("invalid adoption policy %q. allowed values: %s", p, allowed)
+
 }
 
 // ContainsFold returns true if the subject matches one of the
