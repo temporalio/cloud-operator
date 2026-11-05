@@ -136,22 +136,18 @@ func namespaceWithSpec(spec v1alpha1.NamespaceSpec) *v1alpha1.Namespace {
 }
 
 func TestNamespaceFromProto_Spec(t *testing.T) {
-	minimal := v1alpha1.NamespaceSpec{
-		Replicas:      []v1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}},
-		RetentionDays: 7,
-	}
 	cases := []struct {
 		name string
 		in   *tcloudnamespacev1.Namespace
 		exp  v1alpha1.NamespaceSpec
 	}{
 		{
-			name: "nil namespace",
+			name: "nil proto yields empty spec",
 			in:   nil,
 			exp:  v1alpha1.NamespaceSpec{},
 		},
 		{
-			name: "nil spec keeps outer fields",
+			name: "nil proto spec keeps outer fields",
 			in: &tcloudnamespacev1.Namespace{
 				ProjectId: "proj-1",
 				Tags:      map[string]string{"a": "1"},
@@ -170,7 +166,10 @@ func TestNamespaceFromProto_Spec(t *testing.T) {
 					RetentionDays: 7,
 				},
 			},
-			exp: minimal,
+			exp: v1alpha1.NamespaceSpec{
+				Replicas:      []v1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}},
+				RetentionDays: 7,
+			},
 		},
 		{
 			name: "every field",
@@ -180,8 +179,10 @@ func TestNamespaceFromProto_Spec(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(tt *testing.T) {
-			var got v1alpha1.Namespace
-			got.FromProto(tc.in)
+			var ns v1alpha1.Namespace
+
+			got := ns.FromProto(tc.in)
+
 			require.Equal(tt, tc.exp, got.Spec)
 		})
 	}
@@ -223,8 +224,9 @@ func TestNamespaceFromProto_Status(t *testing.T) {
 		t.Run(tc.name, func(tt *testing.T) {
 			require := require.New(tt)
 
-			got := namespaceWithSpec(v1alpha1.NamespaceSpec{})
-			got.FromProto(tc.in)
+			ns := namespaceWithSpec(v1alpha1.NamespaceSpec{})
+
+			got := ns.FromProto(tc.in)
 
 			require.Equal(tc.exp, got.Status.ResourceStatus)
 			// The qualified ID goes to status, never to metadata.name.
@@ -237,8 +239,9 @@ func TestNamespaceFromProto_CopiesCollections(t *testing.T) {
 	require := require.New(t)
 
 	in := fullProtoNamespace()
-	var got v1alpha1.Namespace
-	got.FromProto(in)
+
+	var ns v1alpha1.Namespace
+	got := ns.FromProto(in)
 
 	in.Tags["team"] = "changed"
 	in.Spec.ConnectivityRuleIds[0] = "changed"
@@ -329,9 +332,13 @@ func TestNamespace_RoundTrip(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(tt *testing.T) {
-			var got v1alpha1.Namespace
-			got.FromProto(namespaceWithSpec(tc.spec).ToProto())
-			require.Equal(tt, tc.spec, got.Spec)
+			orig := namespaceWithSpec(tc.spec)
+			tp := orig.ToProto()
+
+			var ns v1alpha1.Namespace
+			fp := ns.FromProto(tp)
+
+			require.Equal(tt, tc.spec, fp.Spec)
 		})
 	}
 }
@@ -372,10 +379,9 @@ func TestCapacityFromProto(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(tt *testing.T) {
-			// Go through v1alpha1.NamespaceSpec, which decides when Capacity is nil.
-			var got v1alpha1.NamespaceSpec
-			got.FromProto(&tcloudnamespacev1.NamespaceSpec{CapacitySpec: tc.in})
-			require.Equal(tt, tc.exp, got.Capacity)
+			var spec v1alpha1.CapacitySpec
+			got := spec.FromProto(tc.in)
+			require.Equal(tt, tc.exp, got)
 		})
 	}
 }
@@ -423,12 +429,12 @@ func TestCapacityToProto(t *testing.T) {
 }
 
 func TestCodecServerFromProto_CustomErrorMessageWithoutDefault(t *testing.T) {
-	var got v1alpha1.CodecServerSpec
-	got.FromProto(&tcloudnamespacev1.CodecServerSpec{
+	var spec v1alpha1.CodecServerSpec
+	got := spec.FromProto(&tcloudnamespacev1.CodecServerSpec{
 		Endpoint:           "https://codec.example.com",
 		CustomErrorMessage: &tcloudnamespacev1.CodecServerSpec_CustomErrorMessage{},
 	})
-	require.Equal(t, v1alpha1.CodecServerSpec{
+	require.Equal(t, &v1alpha1.CodecServerSpec{
 		Endpoint:           "https://codec.example.com",
 		CustomErrorMessage: &v1alpha1.CodecServerCustomErrorMessage{},
 	}, got)
@@ -514,8 +520,8 @@ func TestSearchAttributeTypeConversion(t *testing.T) {
 func TestEncryptionValidationModeConversion(t *testing.T) {
 	fromProto := func(in tcloudnamespacev1.EncryptionValidationSpec_EncryptionValidationMode) v1alpha1.EncryptionValidationMode {
 		var m v1alpha1.EncryptionValidationMode
-		m.FromProto(in)
-		return m
+		got := m.FromProto(in)
+		return got
 	}
 
 	pairs := []struct {
