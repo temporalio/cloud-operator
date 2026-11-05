@@ -1,6 +1,7 @@
 package v1alpha1_test
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -334,6 +335,30 @@ func TestNamespace_RoundTrip(t *testing.T) {
 			require.Equal(tt, tc.spec, got.Spec)
 		})
 	}
+}
+
+// TestNamespace_AdoptRoundTrip checks that a spec filled in from Temporal
+// Cloud for the adopt policy reads back from the API server unchanged and maps
+// back to Temporal Cloud's spec, so adopting makes no update. NamespaceSpec
+// has no CRD defaults, so the API server's round trip is a JSON one.
+func TestNamespace_AdoptRoundTrip(t *testing.T) {
+	cloud := fullProtoNamespace()
+
+	var adopted v1alpha1.Namespace
+	adopted.FromProto(cloud)
+	adopted.Spec.Project = "" // a name-only CR has no project
+
+	data, err := json.Marshal(adopted.Spec)
+	require.NoError(t, err)
+	var stored v1alpha1.NamespaceSpec
+	require.NoError(t, json.Unmarshal(data, &stored))
+	require.Equal(t, adopted.Spec, stored)
+
+	got := namespaceWithSpec(stored).ToProto().GetSpec()
+	require.True(
+		t, proto.Equal(cloud.GetSpec(), got),
+		"want %v, got %v", cloud.GetSpec(), got,
+	)
 }
 
 func TestCapacityFromProto(t *testing.T) {

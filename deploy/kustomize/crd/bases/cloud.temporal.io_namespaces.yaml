@@ -50,7 +50,10 @@ spec:
           metadata:
             type: object
           spec:
-            description: Spec defines the desired state of the Namespace.
+            description: |-
+              Spec defines the desired state of the Namespace.
+              A CR with the adopt adoption policy can leave it out; the operator
+              fills it in from Temporal Cloud.
             properties:
               apiKeyAuth:
                 description: |-
@@ -292,7 +295,9 @@ spec:
                 type: string
               replicas:
                 description: |-
-                  Replicas are the regions where the Namespace is placed.
+                  Replicas are the regions where the Namespace is placed. Required unless
+                  the CR has the adopt adoption policy: a ValidatingAdmissionPolicy checks
+                  this at kubectl apply, and the operator checks it before creating or updating a Namespace.
                   Maps to Temporal Cloud proto `NamespaceSpec.replicas`.
                 items:
                   description: ReplicaSpec places a replica of the Namespace in a
@@ -314,7 +319,8 @@ spec:
               retentionDays:
                 description: |-
                   RetentionDays is the number of days that closed workflow histories are
-                  kept.
+                  kept. Required unless the CR has the adopt adoption policy: a ValidatingAdmissionPolicy checks
+                  this at kubectl apply, and the operator checks it before creating or updating a Namespace.
                   Maps to Temporal Cloud proto `NamespaceSpec.retention_days`.
                 format: int32
                 type: integer
@@ -343,9 +349,6 @@ spec:
                   Tags are key-value pairs to attach to the Namespace.
                   Maps to Temporal Cloud proto `Namespace.tags`.
                 type: object
-            required:
-            - replicas
-            - retentionDays
             type: object
             x-kubernetes-validations:
             - fieldPath: .project
@@ -453,6 +456,15 @@ spec:
                   sent with each update and delete request.
                   Maps to Temporal Cloud proto `resource_version`.
                 type: string
+              source:
+                description: |-
+                  Source is where the Temporal Cloud Namespace came from. Adopted means
+                  the operator adopted a Namespace that already existed, so it is
+                  retained when the CR is deleted unless the deletion-policy annotation
+                  says delete. Empty otherwise.
+                enum:
+                - Adopted
+                type: string
               state:
                 description: |-
                   State is the state of the resource in Temporal Cloud.
@@ -470,8 +482,6 @@ spec:
                 - Expired
                 type: string
             type: object
-        required:
-        - spec
         type: object
     served: true
     storage: true

@@ -71,6 +71,7 @@ type deleteCase struct {
 	// policy is the deletion-policy annotation value. Empty means no
 	// annotation.
 	policy string
+	source tcloudcommon.ResourceSource
 	status tcloudcommon.ResourceStatus
 	// protected sets spec.lifecycle.enableDeleteProtection.
 	protected bool
@@ -137,6 +138,11 @@ func TestReconciler_ResourceDelete_DeletionPolicy(t *testing.T) {
 		{
 			name:   "capitalized retain makes no cloud calls",
 			policy: "Retain",
+			status: statusActive,
+		},
+		{
+			name:   "adopted with no annotation is retained without cloud calls",
+			source: tcloudcommon.ResourceSourceAdopted,
 			status: statusActive,
 		},
 		{
@@ -360,6 +366,7 @@ func runDeleteCase(t *testing.T, tc deleteCase) {
 	require := require.New(t)
 
 	tns := newDeleteTestNamespace(tc.policy, tc.status, tc.protected)
+	tns.Status.Source = tc.source
 	cloud := startDeleteFakeCloud(t, tc)
 	r := newDeleteTestReconciler(cloud, tns)
 
