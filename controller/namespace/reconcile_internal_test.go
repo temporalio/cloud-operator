@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	ctrlerrors "github.com/temporalio/kube-temporal/pkg/controller/errors"
 	tcloudservicev1 "go.temporal.io/cloud-sdk/api/cloudservice/v1"
 	tcloudnamespacev1 "go.temporal.io/cloud-sdk/api/namespace/v1"
 	"google.golang.org/grpc"
@@ -274,6 +275,49 @@ func TestSpecWithoutProjectAndTags(t *testing.T) {
 			require.Equal(tc.expEqual, got)
 			require.Equal(desiredBefore, tc.desired, "desired spec was modified")
 			require.Equal(latestBefore, latest, "latest spec was modified")
+		})
+	}
+}
+
+func TestSyncNamespace_RequiresReplicasAndRetentionDays(t *testing.T) {
+	cases := []struct {
+		name     string
+		spec     tcloudv1alpha1.NamespaceSpec
+		latestID string
+		expErr   string
+	}{
+		{
+			name:   "empty spec is not created",
+			expErr: `tcloud namespace "tmprl-ns" needs spec.replicas and spec.retentionDays`,
+		},
+		{
+			name: "missing retention days is not created",
+			spec: tcloudv1alpha1.NamespaceSpec{
+				Replicas: []tcloudv1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}},
+			},
+			expErr: `tcloud namespace "tmprl-ns" needs spec.retentionDays`,
+		},
+		{
+			name:     "empty spec does not update a linked namespace",
+			latestID: "tmprl-ns.acct1",
+			expErr:   `tcloud namespace "tmprl-ns" needs spec.replicas and spec.retentionDays`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			desired := &tcloudv1alpha1.Namespace{Spec: tc.spec}
+			desired.Name = "tmprl-ns"
+			latest := &tcloudv1alpha1.Namespace{}
+			latest.Status.ID = tc.latestID
+			latest.Status.State = cloudcommon.ResourceStateActive
+
+			// A nil client panics on any Temporal Cloud call, so this also
+			// checks that none is made.
+			err := syncNamespace(context.TODO(), nil, desired, latest)
+
+			var terminal *ctrlerrors.TerminalError
+			require.True(t, errors.As(err, &terminal), "expected terminal error, got %v", err)
+			require.ErrorContains(t, err, tc.expErr)
 		})
 	}
 }

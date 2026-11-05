@@ -264,13 +264,17 @@ func checkDelete(
 // deletionPolicy returns the subject's deletion policy from its
 // cloud.temporal.io/deletion-policy annotation. An unset annotation means
 // delete. An invalid value is an error and never falls back to delete.
-//
-// TODO(Mechack): once adoption is supported, the default for an adopted
-// Namespace becomes retain. An explicit delete is honored either way.
+// Without the annotation, a Namespace the operator adopted is retained.
 func deletionPolicy(subject types.Resource) (tcloudcommon.DeletionPolicy, error) {
 	v, ok := annotation.Value(subject, tcloudcommon.AnnotationKeyDeletionPolicy)
 	if !ok {
+
+		cr := subject.CR().(*tcloudv1alpha1.Namespace)
+		if cr.Status.Source == tcloudcommon.ResourceSourceAdopted {
+			return tcloudcommon.DeletionPolicyRetain, nil
+		}
 		return tcloudcommon.DeletionPolicyDelete, nil
+
 	}
 
 	v = strings.ToLower(strings.TrimSpace(v))

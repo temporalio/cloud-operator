@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	ctrlerrors "github.com/temporalio/kube-temporal/pkg/controller/errors"
 	ctrlreqlog "github.com/temporalio/kube-temporal/pkg/controller/request/log"
@@ -125,6 +126,13 @@ func (r *Reconciler) ResourceSetLatest(
 		if err != nil {
 			return fmt.Errorf("failed listing tcloud namespaces: %w", err)
 		}
+
+		// The adoption-policy annotation decides whether the namespace
+		// found can be linked to this CR.
+		tns, err = r.adoptNamespace(ctx, latest, tns)
+		if err != nil {
+			return err
+		}
 	} else {
 		var resp *tcloudservicev1.GetNamespaceResponse
 		resp, err = tcc.GetNamespace(ctx, &tcloudservicev1.GetNamespaceRequest{
@@ -146,6 +154,7 @@ func (r *Reconciler) ResourceSetLatest(
 		// spec and status to be empty.
 		cr.Spec = tcloudv1alpha1.NamespaceSpec{}
 		cr.Status.ResourceStatus = cloudcommon.ResourceStatus{}
+		cr.Status.Source = ""
 		return nil
 	}
 
@@ -213,6 +222,26 @@ func syncNamespace(
 	desired *tcloudv1alpha1.Namespace,
 	latest *tcloudv1alpha1.Namespace,
 ) error {
+
+	// The CRD schema doesn't require there, so that the adopt policy can
+	// fill them in, and the admission policy that requires them may not be
+	// installed. Never create, or overwrite a Namespace's settings, from a
+	// spec that doesn't have them.
+	var missing []string
+
+	if len(desired.Spec.Replicas) == 0 {
+		missing = append(missing, "spec.replicas")
+	}
+	if desired.Spec.RetentionDays == 0 {
+		missing = append(missing, "spec.retentionDays")
+	}
+	if len(missing) > 0 {
+		return ctrlerrors.NewTerminalError(fmt.Errorf(
+			"%w: tcloud namespace %q needs %s to be created or updated",
+			ctrlerrors.ErrResourceSync, desired.Name, strings.Join(missing, " and "),
+		))
+	}
+
 	if latest.Status.ID == "" {
 		tns := desired.ToProto()
 		resp, err := tcc.CreateNamespace(ctx, &tcloudservicev1.CreateNamespaceRequest{

@@ -34,6 +34,11 @@ type DeletionPolicy string
 // Cloud resource.
 type AdoptionPolicy string
 
+// ResourceSource describes where the Temporal Cloud resource managed by a CR
+// came from.
+// +kubebuilder:validation:Enum=Adopted
+type ResourceSource string
+
 const (
 	// DeletionPolicyDelete deletes the Temporal Cloud resource, and removes
 	// the custom resource once Temporal Cloud has finished deleting it.
@@ -43,9 +48,10 @@ const (
 	DeletionPolicyRetain DeletionPolicy = "retain"
 	// AdoptionPolicyAdopt imports an existing Temporal Cloud resource as is.
 	AdoptionPolicyAdopt AdoptionPolicy = "adopt"
-	// AdoptionPolicyAdoptOrCreate adopts the Temporal Cloud resource if it
-	// exists, and creates it otherwise.
-	AdoptionPolicyAdoptOrCreate AdoptionPolicy = "adopt-or-create"
+
+	// ResourceSourceAdopted means the controller adopted a Temporal Cloud
+	// resource that already existed.
+	ResourceSourceAdopted ResourceSource = "Adopted"
 )
 
 // validDeletionPolicies are the valid DeletionPolicy values.
@@ -57,7 +63,6 @@ var validDeletionPolicies = []string{
 // validAdoptionPolicies are the valid AdoptionPolicy values.
 var validAdoptionPolicies = []string{
 	string(AdoptionPolicyAdopt),
-	string(AdoptionPolicyAdoptOrCreate),
 }
 
 // Validate returns an error if the DeletionPolicy is not one of the valid
