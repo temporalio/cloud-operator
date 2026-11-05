@@ -101,14 +101,19 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 	tns := &tcloudv1alpha1.Namespace{}
 	tns.Name = tnsName
 	tns.Namespace = kubeNamespace
-	tns.Spec.Project = project
+	tns.Spec.Project = &tcloudv1alpha1.ProjectReferenceOrID{
+		ID: project,
+	}
 	tns.Spec.RetentionDays = 7
 
 	// tnsSynced has been synced before, so ResourceSetLatest gets the
 	// namespace by its Status.ID.
 	tnsSynced := tns.DeepCopy()
-	tnsSynced.Status.ID = tnsID
-	tnsSynced.Status.ResourceVersion = "rv-0"
+	tnsSynced.Status.Resource.ID = tnsID
+	tnsSynced.Status.Resource.Version = "rv-0"
+	tnsSynced.Status.References = tcloudv1alpha1.NamespaceReferences{
+		Project: project,
+	}
 
 	// protoOutOfSync is the namespace as Temporal Cloud reports it. Its project
 	// differs from the CR's so we can see that latest is mutated to match
@@ -129,17 +134,25 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 
 	nsOutOfSync := tns.DeepCopy()
 	nsOutOfSync.Spec = tcloudv1alpha1.NamespaceSpec{
-		Project:       projectOther,
+		// NOTE(jaypipes): The spec's project is never mutated once set.
+		// Instead, Status.Cloud.References.Project is set to the value
+		// returned from Temporal Cloud API.
+		Project: &tcloudv1alpha1.ProjectReferenceOrID{
+			ID: project,
+		},
 		Tags:          map[string]string{"team": "core"},
 		Replicas:      []tcloudv1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}},
 		RetentionDays: 30,
 	}
 	nsOutOfSync.Status = tcloudv1alpha1.NamespaceStatus{
-		ResourceStatus: cloudcommon.ResourceStatus{
+		Resource: cloudcommon.ResourceStatus{
 			ID:               tnsID,
-			ResourceVersion:  "rv-1",
+			Version:          "rv-1",
 			State:            cloudcommon.ResourceStateActive,
 			AsyncOperationID: "op-1",
+		},
+		References: tcloudv1alpha1.NamespaceReferences{
+			Project: projectOther,
 		},
 	}
 
@@ -148,7 +161,7 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 	cleared := tns.DeepCopy()
 	cleared.Spec = tcloudv1alpha1.NamespaceSpec{}
 	cleared.Status = tcloudv1alpha1.NamespaceStatus{
-		ResourceStatus: cloudcommon.ResourceStatus{},
+		Resource: cloudcommon.ResourceStatus{},
 	}
 
 	cases := []struct {

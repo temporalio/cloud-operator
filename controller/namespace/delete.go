@@ -46,7 +46,9 @@ func (r *Reconciler) ResourceDelete(
 
 	latest := original.DeepCopy()
 	cr := latest.CR().(*tcloudv1alpha1.Namespace)
-	if cr.Status.ID == "" {
+
+	resourceID := cr.Status.Resource.ID
+	if resourceID == "" {
 		// The user deleted the CR before the operator created a Namespace in
 		// Temporal Cloud, so there's nothing to delete.
 		return latest, nil
@@ -70,7 +72,7 @@ func (r *Reconciler) ResourceDelete(
 	if policy == tcloudcommon.DeletionPolicyRetain {
 		log.Info(
 			"retaining Temporal Cloud Namespace because of the retain deletion policy",
-			slog.String("namespace_id", cr.Status.ID),
+			slog.String("namespace_id", resourceID),
 			slog.String("deletion_policy", string(policy)),
 		)
 		return latest, nil
@@ -82,30 +84,36 @@ func (r *Reconciler) ResourceDelete(
 		return latest, err
 	}
 
+	resourceState := cr.Status.Resource.State
+	asyncOpID := cr.Status.Resource.AsyncOperationID
+
 	// We may have already called DeleteNamespace for this resource. If so,
 	// check whether the delete operation has finished.
 	switch {
-	case cr.Status.State == tcloudcommon.ResourceStateDeleted:
+	case resourceState == tcloudcommon.ResourceStateDeleted:
 		return latest, nil
-	case cr.Status.State == tcloudcommon.ResourceStateDeleteFailed:
+	case resourceState == tcloudcommon.ResourceStateDeleteFailed:
 		// A previous delete failed. Don't send another one automatically.
-		err = ctrlerrors.NewTerminalError(fmt.Errorf(
-			"deleting Temporal Cloud namespace %s previously failed (async operation %s); not retrying",
-			cr.Status.ID, cr.Status.AsyncOperationID,
-		))
+		err = ctrlerrors.NewTerminalError(
+			fmt.Errorf(
+				"deleting Temporal Cloud namespace %s previously failed "+
+					"(async operation %s); not retrying",
+				resourceID, asyncOpID,
+			),
+		)
 		return latest, err
-	case cr.Status.State == tcloudcommon.ResourceStateDeleting &&
-		cr.Status.AsyncOperationID != "":
+	case resourceState == tcloudcommon.ResourceStateDeleting &&
+		asyncOpID != "":
 		err = checkDelete(ctx, tcc, latest, cr)
 		return latest, err
-	case cr.Status.State == tcloudcommon.ResourceStateActivating,
-		cr.Status.State == tcloudcommon.ResourceStateUpdating:
+	case resourceState == tcloudcommon.ResourceStateActivating,
+		resourceState == tcloudcommon.ResourceStateUpdating:
 		// A create or update on this custom resource is still in flight, and Temporal Cloud rejects a
 		// delete until the Namespace is Active. Check again later.
 		err = requeue.NeededAfter(
 			fmt.Errorf(
 				"waiting for tcloud namespace %s to finish %s before deleting",
-				cr.Status.ID, cr.Status.State,
+				resourceID, resourceState,
 			),
 			requeue.DefaultRequeueAfterDuration,
 		)
@@ -120,7 +128,7 @@ func (r *Reconciler) ResourceDelete(
 			"tcloud namespace %s has deletion protection enabled; set "+
 				"spec.lifecycle.enableDeleteProtection to false to delete it, "+
 				"or set the %s annotation to %q to keep it",
-			cr.Status.ID, tcloudcommon.AnnotationKeyDeletionPolicy,
+			resourceID, tcloudcommon.AnnotationKeyDeletionPolicy,
 			tcloudcommon.DeletionPolicyRetain,
 		)
 		condition.SetStalled(
@@ -133,7 +141,7 @@ func (r *Reconciler) ResourceDelete(
 	// Read the namespace so deletion protection in Temporal Cloud can be made
 	// to match the CR, and so the delete uses the current resource version.
 	getResp, err := tcc.GetNamespace(ctx, &tcloudservicev1.GetNamespaceRequest{
-		Namespace: cr.Status.ID,
+		Namespace: resourceID,
 	})
 	if status.Code(err) == codes.NotFound {
 		// Already gone.
@@ -141,7 +149,7 @@ func (r *Reconciler) ResourceDelete(
 		return latest, nil
 	}
 	if err != nil {
-		err = fmt.Errorf("failed getting tcloud namespace %s: %w", cr.Status.ID, err)
+		err = fmt.Errorf("failed getting tcloud namespace %s: %w", resourceID, err)
 		return latest, err
 	}
 	tns := getResp.GetNamespace()
@@ -154,7 +162,7 @@ func (r *Reconciler) ResourceDelete(
 	}
 
 	resp, err := tcc.DeleteNamespace(ctx, &tcloudservicev1.DeleteNamespaceRequest{
-		Namespace:       cr.Status.ID,
+		Namespace:       resourceID,
 		ResourceVersion: tns.GetResourceVersion(),
 	})
 	if status.Code(err) == codes.NotFound {
@@ -165,19 +173,22 @@ func (r *Reconciler) ResourceDelete(
 	if err != nil {
 		// The gRPC error includes Temporal Cloud's message, for example that
 		// deletion protection is enabled.
-		err = fmt.Errorf("failed deleting tcloud namespace %s: %w", cr.Status.ID, err)
+		err = fmt.Errorf(
+			"failed deleting tcloud namespace %s: %w",
+			resourceID, err,
+		)
 		condition.SetStalled(
 			latest, metav1.ConditionTrue, err.Error(), tcloudcommon.ReasonResourceDeleteFailed,
 		)
 		return latest, err
 	}
 
-	cr.Status.State = tcloudcommon.ResourceStateDeleting
-	cr.Status.AsyncOperationID = resp.GetAsyncOperation().GetId()
+	cr.Status.Resource.State = tcloudcommon.ResourceStateDeleting
+	cr.Status.Resource.AsyncOperationID = resp.GetAsyncOperation().GetId()
 	err = requeue.NeededAfter(
 		fmt.Errorf(
 			"deleting tcloud namespace %s (async operation %s)",
-			cr.Status.ID, cr.Status.AsyncOperationID,
+			resourceID, asyncOpID,
 		),
 		requeue.DefaultRequeueAfterDuration,
 	)
@@ -224,13 +235,16 @@ func checkDelete(
 	latest types.Resource,
 	cr *tcloudv1alpha1.Namespace,
 ) error {
+	resourceID := cr.Status.Resource.ID
+	asyncOpID := cr.Status.Resource.AsyncOperationID
+
 	resp, err := tcc.GetAsyncOperation(ctx, &tcloudservicev1.GetAsyncOperationRequest{
-		AsyncOperationId: cr.Status.AsyncOperationID,
+		AsyncOperationId: asyncOpID,
 	})
 	if err != nil {
 		return fmt.Errorf(
 			"failed getting tcloud async operation %s: %w",
-			cr.Status.AsyncOperationID, err,
+			asyncOpID, err,
 		)
 	}
 	op := resp.GetAsyncOperation()
@@ -242,12 +256,12 @@ func checkDelete(
 		operationv1.AsyncOperation_STATE_CANCELLED:
 		msg := fmt.Sprintf(
 			"deleting tcloud namespace %s failed: async operation %s is %s: %s",
-			cr.Status.ID, op.GetId(), op.GetState(), op.GetFailureReason(),
+			resourceID, op.GetId(), op.GetState(), op.GetFailureReason(),
 		)
 		condition.SetStalled(
 			latest, metav1.ConditionTrue, msg, tcloudcommon.ReasonResourceDeleteFailed,
 		)
-		cr.Status.State = tcloudcommon.ResourceStateDeleteFailed
+		cr.Status.Resource.State = tcloudcommon.ResourceStateDeleteFailed
 		return ctrlerrors.NewTerminalError(errors.New(msg))
 	default:
 		// Pending, in progress, or a state this SDK doesn't know.

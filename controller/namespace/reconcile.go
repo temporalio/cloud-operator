@@ -115,8 +115,10 @@ func (r *Reconciler) ResourceSetLatest(
 	// `latest` parameter.
 	cr := latest.(*res).cr
 
+	resourceID := cr.Status.Resource.ID
+
 	var tns *tcloudnamespacev1.Namespace
-	if cr.Status.ID == "" {
+	if resourceID == "" {
 		// The qualified namespace name is only known once a reconcile after
 		// the create has saved it to status, and status can be lost (e.g. the
 		// CR was recreated). Look the namespace up by name so that a duplicate
@@ -128,7 +130,7 @@ func (r *Reconciler) ResourceSetLatest(
 	} else {
 		var resp *tcloudservicev1.GetNamespaceResponse
 		resp, err = tcc.GetNamespace(ctx, &tcloudservicev1.GetNamespaceRequest{
-			Namespace: cr.Status.ID,
+			Namespace: resourceID,
 		})
 		if status.Code(err) == codes.NotFound {
 			// The namespace was deleted outside of the operator. Treat it
@@ -145,7 +147,7 @@ func (r *Reconciler) ResourceSetLatest(
 		// The namespace does not exist in Temporal Cloud, so mutate latest
 		// spec and status to be empty.
 		cr.Spec = tcloudv1alpha1.NamespaceSpec{}
-		cr.Status.ResourceStatus = cloudcommon.ResourceStatus{}
+		cr.Status = tcloudv1alpha1.NamespaceStatus{}
 		return nil
 	}
 
@@ -201,7 +203,9 @@ func syncNamespace(
 	desired *tcloudv1alpha1.Namespace,
 	latest *tcloudv1alpha1.Namespace,
 ) error {
-	if latest.Status.ID == "" {
+	resourceID := latest.Status.Resource.ID
+
+	if resourceID == "" {
 		tns := desired.ToProto()
 		resp, err := tcc.CreateNamespace(ctx, &tcloudservicev1.CreateNamespaceRequest{
 			Spec:      tns.GetSpec(),
@@ -220,12 +224,15 @@ func syncNamespace(
 	// Only an Active namespace accepts new operations. Every other state
 	// either resolves on its own, so we wait, or needs someone to step in, so
 	// we stop. Unknown states also wait rather than fall through to an update.
-	id := latest.Status.ID
-	switch state := latest.Status.State; state {
+	resourceState := latest.Status.Resource.State
+	switch resourceState {
 	case cloudcommon.ResourceStateActive:
 	case cloudcommon.ResourceStateActivating, cloudcommon.ResourceStateUpdating:
 		return requeue.NeededAfter(
-			fmt.Errorf("waiting for tcloud namespace %q to leave state %s", id, state),
+			fmt.Errorf(
+				"waiting for tcloud namespace %q to leave state %s",
+				resourceID, resourceState,
+			),
 			requeue.DefaultRequeueAfterDuration,
 		)
 	case cloudcommon.ResourceStateDeleting, cloudcommon.ResourceStateDeleted:
@@ -233,7 +240,10 @@ func syncNamespace(
 		// Cloud reports it as not found, ResourceSetLatest clears the status
 		// and the next sync recreates it.
 		return requeue.NeededAfter(
-			fmt.Errorf("waiting for tcloud namespace %q to finish deleting, state %s", id, state),
+			fmt.Errorf(
+				"waiting for tcloud namespace %q to finish deleting, state %s",
+				resourceID, resourceState,
+			),
 			requeue.DefaultRequeueAfterDuration,
 		)
 	case cloudcommon.ResourceStateActivationFailed,
@@ -241,13 +251,19 @@ func syncNamespace(
 		cloudcommon.ResourceStateDeleteFailed,
 		cloudcommon.ResourceStateSuspended,
 		cloudcommon.ResourceStateExpired:
-		return ctrlerrors.NewTerminalError(fmt.Errorf(
-			"%w: tcloud namespace %q is in state %s, contact Temporal Cloud support",
-			ctrlerrors.ErrResourceSync, id, state,
-		))
+		return ctrlerrors.NewTerminalError(
+			fmt.Errorf(
+				"%w: tcloud namespace %q is in state %s, "+
+					"contact Temporal Cloud support",
+				ctrlerrors.ErrResourceSync, resourceID, resourceState,
+			),
+		)
 	default:
 		return requeue.NeededAfter(
-			fmt.Errorf("waiting for tcloud namespace %q to leave unknown state %q", id, state),
+			fmt.Errorf(
+				"waiting for tcloud namespace %q to leave unknown state %q",
+				resourceID, resourceState,
+			),
 			requeue.DefaultRequeueAfterDuration,
 		)
 	}
@@ -255,11 +271,15 @@ func syncNamespace(
 	// spec.project is immutable on the CR, so a mismatch means the namespace
 	// was moved outside of the operator. An empty spec.project means the
 	// account's default project, whose ID Temporal Cloud reports back.
-	if desired.Spec.Project != "" && desired.Spec.Project != latest.Spec.Project {
-		return ctrlerrors.NewTerminalError(fmt.Errorf(
-			"%w: tcloud namespace %q is in project %q but spec.project is %q",
-			ctrlerrors.ErrResourceSync, id, latest.Spec.Project, desired.Spec.Project,
-		))
+	if desired.Spec.Project.ID != "" && desired.Spec.Project != latest.Spec.Project {
+		return ctrlerrors.NewTerminalError(
+			fmt.Errorf(
+				"%w: tcloud namespace %q is in project %q "+
+					"but spec.project.id is %q",
+				ctrlerrors.ErrResourceSync, resourceID,
+				latest.Spec.Project.ID, desired.Spec.Project.ID,
+			),
+		)
 	}
 
 	// The controller's DeepEqual always reports a difference
@@ -271,15 +291,15 @@ func syncNamespace(
 		specWithoutProjectAndTags(&latest.Spec),
 	) {
 		_, err := tcc.UpdateNamespace(ctx, &tcloudservicev1.UpdateNamespaceRequest{
-			Namespace:       id,
+			Namespace:       resourceID,
 			Spec:            desired.ToProto().GetSpec(),
-			ResourceVersion: latest.Status.ResourceVersion,
+			ResourceVersion: latest.Status.Resource.Version,
 		})
 		if err != nil {
 			return cloudCallError("updating tcloud namespace", err)
 		}
 		return requeue.NeededAfter(
-			fmt.Errorf("updated tcloud namespace %q, waiting for update to complete", id),
+			fmt.Errorf("updated tcloud namespace %q, waiting for update to complete", resourceID),
 			requeue.DefaultRequeueAfterDuration,
 		)
 	}
@@ -287,7 +307,7 @@ func syncNamespace(
 	upsert, remove := tagsDiff(desired.Spec.Tags, latest.Spec.Tags)
 	if len(upsert) > 0 || len(remove) > 0 {
 		_, err := tcc.UpdateNamespaceTags(ctx, &tcloudservicev1.UpdateNamespaceTagsRequest{
-			Namespace:    id,
+			Namespace:    resourceID,
 			TagsToUpsert: upsert,
 			TagsToRemove: remove,
 		})
@@ -295,7 +315,11 @@ func syncNamespace(
 			return cloudCallError("updating tcloud namespace tags", err)
 		}
 		return requeue.NeededAfter(
-			fmt.Errorf("updated tcloud namespace %q tags, waiting for update to complete", id),
+			fmt.Errorf(
+				"updated tcloud namespace %q tags, "+
+					"waiting for update to complete",
+				resourceID,
+			),
 			requeue.DefaultRequeueAfterDuration,
 		)
 	}
@@ -309,7 +333,9 @@ func specWithoutProjectAndTags(
 	spec *tcloudv1alpha1.NamespaceSpec,
 ) *tcloudv1alpha1.NamespaceSpec {
 	out := spec.DeepCopy()
-	out.Project = ""
+	out.Project = &tcloudv1alpha1.ProjectReferenceOrID{
+		ID: "",
+	}
 	out.Tags = nil
 	if cs := out.CodecServer; cs != nil && cs.CustomErrorMessage != nil {
 		cs.CustomErrorMessage.Default = nilIfEmpty(cs.CustomErrorMessage.Default)

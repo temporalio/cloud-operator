@@ -40,21 +40,21 @@ const (
 
 var (
 	statusActive = tcloudcommon.ResourceStatus{
-		ID:              deleteTestID,
-		ResourceVersion: deleteTestRV,
-		State:           tcloudcommon.ResourceStateActive,
+		ID:      deleteTestID,
+		Version: deleteTestRV,
+		State:   tcloudcommon.ResourceStateActive,
 	}
 
 	statusDeleting = tcloudcommon.ResourceStatus{
 		ID:               deleteTestID,
-		ResourceVersion:  deleteTestRV,
+		Version:          deleteTestRV,
 		State:            tcloudcommon.ResourceStateDeleting,
 		AsyncOperationID: deleteTestAsyncOpID,
 	}
 
 	statusDeleteFailed = tcloudcommon.ResourceStatus{
 		ID:               deleteTestID,
-		ResourceVersion:  deleteTestRV,
+		Version:          deleteTestRV,
 		State:            tcloudcommon.ResourceStateDeleteFailed,
 		AsyncOperationID: deleteTestAsyncOpID,
 	}
@@ -377,7 +377,7 @@ func runDeleteCase(t *testing.T, tc deleteCase) {
 	if tc.expStatus != nil {
 		expStatus = *tc.expStatus
 	}
-	require.Equal(expStatus, gotCR.Status.ResourceStatus)
+	require.Equal(expStatus, gotCR.Status.Resource)
 
 	requireStalled(t, got, tc.expStalled)
 	cloud.requireCalls(t, tc)
@@ -399,7 +399,7 @@ func newDeleteTestNamespace(
 			tcloudcommon.AnnotationKeyDeletionPolicy: policy,
 		}
 	}
-	tns.Status.ResourceStatus = rs
+	tns.Status.Resource = rs
 	if protected {
 		tns.Spec.Lifecycle = &tcloudcommon.LifecycleSpec{
 			EnableDeleteProtection: true,
