@@ -33,12 +33,13 @@ type ServiceAccount struct {
 //
 // Ref: https://github.com/temporalio/cloud-api/blob/v0.24.0/temporal/api/cloud/identity/v1/message.proto
 // +k8s:openapi-gen=true
-// +kubebuilder:validation:XValidation:rule="[has(self.access), has(self.namespaceScopedAccess), has(self.projectScopedAccess)].filter(x, x).size() == 1",message="exactly one of access, namespaceScopedAccess or projectScopedAccess must be set"
-// +kubebuilder:validation:XValidation:rule="has(self.access) == has(oldSelf.access) && has(self.namespaceScopedAccess) == has(oldSelf.namespaceScopedAccess) && has(self.projectScopedAccess) == has(oldSelf.projectScopedAccess)",message="the access scope cannot be changed after creation"
+// +kubebuilder:validation:XValidation:rule="[has(self.accountScopedAccess), has(self.namespaceScopedAccess), has(self.projectScopedAccess)].filter(x, x).size() == 1",message="exactly one of accountScopedAccess, namespaceScopedAccess or projectScopedAccess must be set"
+// +kubebuilder:validation:XValidation:rule="has(self.accountScopedAccess) == has(oldSelf.accountScopedAccess) && has(self.namespaceScopedAccess) == has(oldSelf.namespaceScopedAccess) && has(self.projectScopedAccess) == has(oldSelf.projectScopedAccess)",message="the access scope cannot be changed after creation"
 // +kubebuilder:validation:XValidation:rule="!has(self.namespaceScopedAccess) || !has(oldSelf.namespaceScopedAccess) || self.namespaceScopedAccess.__namespace__ == oldSelf.namespaceScopedAccess.__namespace__",message="namespaceScopedAccess.namespace cannot be changed after creation",fieldPath=".namespaceScopedAccess.namespace"
 // +kubebuilder:validation:XValidation:rule="!has(self.projectScopedAccess) || !has(oldSelf.projectScopedAccess) || self.projectScopedAccess.project == oldSelf.projectScopedAccess.project",message="projectScopedAccess.project cannot be changed after creation",fieldPath=".projectScopedAccess.project"
 type ServiceAccountSpec struct {
 	// DisplayName is the name of the Service Account in Temporal Cloud.
+	// It is mutable and must be unique within the account.
 	// Maps to Temporal Cloud proto `ServiceAccountSpec.name`.
 	// +required
 	// +kubebuilder:validation:MinLength=1
@@ -47,10 +48,10 @@ type ServiceAccountSpec struct {
 	// Maps to Temporal Cloud proto `ServiceAccountSpec.description`.
 	// +optional
 	Description string `json:"description,omitempty"`
-	// Access makes this an account scoped Service Account.
+	// AccountScopedAccess makes this an account scoped Service Account.
 	// Maps to Temporal Cloud proto `ServiceAccountSpec.access`.
 	// +optional
-	Access *Access `json:"access,omitempty"`
+	AccountScopedAccess *AccountScopedAccess `json:"accountScopedAccess,omitempty"`
 	// NamespaceScopedAccess makes this a Service Account scoped to a single
 	// Namespace.
 	// Maps to Temporal Cloud proto `ServiceAccountSpec.namespace_scoped_access`.
@@ -83,8 +84,9 @@ type ProjectScopedAccess struct {
 	NamespaceAccesses []NamespaceScopedAccess `json:"namespaceAccesses,omitempty"`
 }
 
-// Access describes the access assigned to an account scoped Service Account.
-type Access struct {
+// AccountScopedAccess describes the access assigned to an account scoped Service Account.
+// Maps to Temporal Cloud proto `Access`.
+type AccountScopedAccess struct {
 	// AccountAccess is the access to the account.
 	// Maps to Temporal Cloud proto `Access.account_access`.
 	// +optional
@@ -241,9 +243,9 @@ type ServiceAccountStatus struct {
 // ServiceAccountReferences contains the Temporal Cloud resource IDs of related
 // resources, at the same paths as the spec fields that refer to them.
 type ServiceAccountReferences struct {
-	// Access contains the IDs referenced by spec.access.
+	// AccountScopedAccess contains the IDs referenced by spec.accountScopedAccess.
 	// +optional
-	Access *AccessReferences `json:"access,omitempty"`
+	AccountScopedAccess *AccountScopedAccessReferences `json:"accountScopedAccess,omitempty"`
 	// NamespaceScopedAccess contains the IDs referenced by
 	// spec.namespaceScopedAccess.
 	// +optional
@@ -254,17 +256,17 @@ type ServiceAccountReferences struct {
 	ProjectScopedAccess *ProjectScopedAccessReferences `json:"projectScopedAccess,omitempty"`
 }
 
-// AccessReferences contains the IDs referenced by spec.access.
-type AccessReferences struct {
-	// AccountAccess contains the IDs referenced by spec.access.accountAccess.
+// AccountScopedAccessReferences contains the IDs referenced by spec.accountScopedAccess.
+type AccountScopedAccessReferences struct {
+	// AccountAccess contains the IDs referenced by spec.accountScopedAccess.accountAccess.
 	// +optional
 	AccountAccess *AccountAccessReferences `json:"accountAccess,omitempty"`
 	// NamespaceAccesses are the Namespace IDs of
-	// spec.access.namespaceAccesses, in the same order.
+	// spec.accountScopedAccess.namespaceAccesses, in the same order.
 	// +optional
 	// +listType=atomic
 	NamespaceAccesses []string `json:"namespaceAccesses,omitempty"`
-	// ProjectAccesses are the Project IDs of spec.access.projectAccesses, in
+	// ProjectAccesses are the Project IDs of spec.accountScopedAccess.projectAccesses, in
 	// the same order.
 	// +optional
 	// +listType=atomic
@@ -272,10 +274,10 @@ type AccessReferences struct {
 }
 
 // AccountAccessReferences contains the IDs referenced by
-// spec.access.accountAccess.
+// spec.accountScopedAccess.accountAccess.
 type AccountAccessReferences struct {
 	// CustomRoles are the custom role IDs of
-	// spec.access.accountAccess.customRoles, in the same order.
+	// spec.accountScopedAccess.accountAccess.customRoles, in the same order.
 	// +optional
 	// +listType=atomic
 	CustomRoles []string `json:"customRoles,omitempty"`
