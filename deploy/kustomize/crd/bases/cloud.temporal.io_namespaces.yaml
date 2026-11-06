@@ -285,11 +285,31 @@ spec:
                 type: object
               project:
                 description: |-
-                  Project is the identifier of the Temporal Cloud project that the Namespace
-                  belongs to.
-                  Maps to Temporal Cloud proto `Namespace.project_id`.
-                minLength: 1
-                type: string
+                  Project contains *either* a Temporal Cloud Project identifier string
+                  *or* a ProjectReference that points to a cloud.temporal.io/Project.
+                properties:
+                  id:
+                    description: ID is the Temporal Cloud Project resource identifier
+                    type: string
+                  ref:
+                    description: Ref is an optional field that points at a cloud.temporal.io/Project.
+                    properties:
+                      name:
+                        description: Name is the name of the Project.
+                        type: string
+                      namespace:
+                        description: |-
+                          Namespace contains the optional Kubernetes Namespace in which to find
+                          the Project. If empty, the Kubernetes Namespace containing the referring
+                          object is used.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                type: object
+                x-kubernetes-validations:
+                - message: exactly one of ref or id must be set
+                  rule: has(self.ref) != has(self.id)
               replicas:
                 description: |-
                   Replicas are the regions where the Namespace is placed.
@@ -360,12 +380,6 @@ spec:
           status:
             description: Status describes the current status of a Namespace.
             properties:
-              asyncOperationID:
-                description: |-
-                  AsyncOperationID is the ID of the most recent asynchronous operation
-                  started on the resource.
-                  Maps to Temporal Cloud proto `async_operation_id`.
-                type: string
               conditions:
                 description: Conditions is the collection of Conditions associated
                   with the resource.
@@ -427,48 +441,86 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
-              createdTime:
+              references:
                 description: |-
-                  CreatedTime is when the resource was created in Temporal Cloud.
-                  Maps to Temporal Cloud proto `created_time`.
-                format: date-time
-                type: string
-              id:
+                  References is an optional field containing the Temporal Cloud resource
+                  IDs for any related resources.
+                properties:
+                  connectivityRules:
+                    description: |-
+                      ConnectivityRules is the set of Temporal Cloud resource identifiers for
+                      any Namespace ConnectivityRules associated with this Temporal Namespace
+                    items:
+                      type: string
+                    type: array
+                  project:
+                    description: |-
+                      Project is the Temporal Cloud resource identifier for the Project
+                      containing this Temporal Namespace.
+                    type: string
+                type: object
+              resource:
                 description: |-
-                  ID is the identifier Temporal Cloud uses for the resource. Not set for
-                  resources that Temporal Cloud identifies by name.
-                  Maps to Temporal Cloud proto `id`, or `Namespace.namespace` for
-                  Namespaces.
-                type: string
-              lastModifiedTime:
-                description: |-
-                  LastModifiedTime is when the resource was last modified in Temporal
-                  Cloud.
-                  Maps to Temporal Cloud proto `last_modified_time`.
-                format: date-time
-                type: string
-              resourceVersion:
-                description: |-
-                  ResourceVersion is the version of the resource in Temporal Cloud. It is
-                  sent with each update and delete request.
-                  Maps to Temporal Cloud proto `resource_version`.
-                type: string
-              state:
-                description: |-
-                  State is the state of the resource in Temporal Cloud.
-                  Maps to Temporal Cloud proto `state`.
-                enum:
-                - Activating
-                - ActivationFailed
-                - Active
-                - Updating
-                - UpdateFailed
-                - Deleting
-                - DeleteFailed
-                - Deleted
-                - Suspended
-                - Expired
-                type: string
+                  Resource contains common information about the Temporal Cloud resource
+                  that this CR represents.
+                properties:
+                  asyncOperationID:
+                    description: |-
+                      asyncOperationID is an optional field that contains the ID of the last
+                      async operation on this resource that was NOT in a terminal state
+                      (FAILED, COMPLETED, FULFILLED,REJECTED) when this reconcile loop
+                      executed.
+
+                      The reconciler removes this field when it determines the operation has
+                      reached a terminal state.
+
+                      Maps to Temporal Cloud proto `async_operation_id`.
+                    type: string
+                  createdTime:
+                    description: |-
+                      CreatedTime is when the resource was created in Temporal Cloud.
+                      Maps to Temporal Cloud proto `created_time`.
+                    format: date-time
+                    type: string
+                  id:
+                    description: |-
+                      ID is the identifier Temporal Cloud uses for the resource. Not set for
+                      resources that Temporal Cloud identifies by name.
+                      Maps to Temporal Cloud proto `id`, or `Namespace.namespace` for
+                      Namespaces.
+                    type: string
+                  lastModifiedTime:
+                    description: |-
+                      LastModifiedTime is when the resource was last modified in Temporal
+                      Cloud.
+                      Maps to Temporal Cloud proto `last_modified_time`.
+                    format: date-time
+                    type: string
+                  state:
+                    description: |-
+                      State is the state of the resource in Temporal Cloud.
+                      Maps to Temporal Cloud proto `state`.
+                    enum:
+                    - Activating
+                    - ActivationFailed
+                    - Active
+                    - Updating
+                    - UpdateFailed
+                    - Deleting
+                    - DeleteFailed
+                    - Deleted
+                    - Suspended
+                    - Expired
+                    type: string
+                  version:
+                    description: |-
+                      Version is the version of the resource in Temporal Cloud. It is
+                      sent with each update and delete request.
+                      Maps to Temporal Cloud proto `resource_version`.
+                    type: string
+                type: object
+            required:
+            - resource
             type: object
         required:
         - spec

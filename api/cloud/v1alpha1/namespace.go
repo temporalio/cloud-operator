@@ -45,6 +45,8 @@ func (n Namespace) FromProto(in *tcloudnamespacev1.Namespace) *Namespace {
 		TypeMeta:   n.TypeMeta,
 		ObjectMeta: n.ObjectMeta,
 	}
+	out.Spec.Project = n.Spec.Project
+	out.Spec.Tags = maps.Clone(n.Spec.Tags)
 
 	if in == nil {
 		return &out
@@ -52,16 +54,24 @@ func (n Namespace) FromProto(in *tcloudnamespacev1.Namespace) *Namespace {
 
 	var spec NamespaceSpec
 	out.Spec = spec.FromProto(in.GetSpec())
-	out.Spec.Project = in.GetProjectId()
+
+	// We use Status.Cloud.References.Project to save the project identifier
+	// returned from Temporal Cloud. We *never* mutate Spec.Project once it has
+	// been set.
+	out.Spec.Project = n.Spec.Project
+
+	// But we *do* update the Spec.Tags to contain the collection of tags
+	// returned from Temporal Cloud.
 	out.Spec.Tags = maps.Clone(in.GetTags())
 
-	out.Status.ID = in.GetNamespace()
-	out.Status.ResourceVersion = in.GetResourceVersion()
-	out.Status.State.FromProto(in.GetState())
-	out.Status.AsyncOperationID = in.GetAsyncOperationId()
-	out.Status.CreatedTime = transform.TimeFromProto(in.GetCreatedTime())
-	out.Status.LastModifiedTime = transform.TimeFromProto(in.GetLastModifiedTime())
+	out.Status.Resource.ID = in.GetNamespace()
+	out.Status.Resource.Version = in.GetResourceVersion()
+	out.Status.Resource.State.FromProto(in.GetState())
+	out.Status.Resource.AsyncOperationID = in.GetAsyncOperationId()
+	out.Status.Resource.CreatedTime = transform.TimeFromProto(in.GetCreatedTime())
+	out.Status.Resource.LastModifiedTime = transform.TimeFromProto(in.GetLastModifiedTime())
 
+	out.Status.References.Project = in.GetProjectId()
 	return &out
 }
 
@@ -77,7 +87,7 @@ func (n Namespace) ToProto() *tcloudnamespacev1.Namespace {
 	spec.Name = n.Name
 	return &tcloudnamespacev1.Namespace{
 		Spec:      spec,
-		ProjectId: n.Spec.Project,
+		ProjectId: n.Status.References.Project,
 		Tags:      maps.Clone(n.Spec.Tags),
 	}
 }
@@ -89,12 +99,10 @@ func (n Namespace) ToProto() *tcloudnamespacev1.Namespace {
 // +kubebuilder:validation:XValidation:rule="has(self.project) == has(oldSelf.project) && (!has(self.project) || self.project == oldSelf.project)",message="project cannot be added, changed or removed after creation",fieldPath=".project"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.searchAttributes) || (has(self.searchAttributes) && oldSelf.searchAttributes.all(k, k in self.searchAttributes && self.searchAttributes[k] == oldSelf.searchAttributes[k]))",message="searchAttributes cannot be removed or have their type changed",fieldPath=".searchAttributes"
 type NamespaceSpec struct {
-	// Project is the identifier of the Temporal Cloud project that the Namespace
-	// belongs to.
-	// Maps to Temporal Cloud proto `Namespace.project_id`.
+	// Project contains *either* a Temporal Cloud Project identifier string
+	// *or* a ProjectReference that points to a cloud.temporal.io/Project.
 	// +optional
-	// +kubebuilder:validation:MinLength=1
-	Project string `json:"project,omitempty"`
+	Project *ProjectReferenceOrID `json:"project,omitempty"`
 	// Tags are key-value pairs to attach to the Namespace.
 	// Maps to Temporal Cloud proto `Namespace.tags`.
 	// +optional
@@ -982,8 +990,24 @@ func (m EncryptionValidationMode) ToProto() tcloudnamespacev1.EncryptionValidati
 // no corresponding NamespaceStatus struct in the Temporal Cloud API.
 // +k8s:openapi-gen=true
 type NamespaceStatus struct {
-	tmprlcorev1.StatusBase     `json:",inline"`
-	cloudcommon.ResourceStatus `json:",inline"`
+	tmprlcorev1.StatusBase `json:",inline"`
+	// Resource contains common information about the Temporal Cloud resource
+	// that this CR represents.
+	Resource cloudcommon.ResourceStatus `json:"resource"`
+	// References is an optional field containing the Temporal Cloud resource
+	// IDs for any related resources.
+	References NamespaceReferences `json:"references,omitempty"`
+}
+
+// NamespaceReferences is an optional field containing the
+// Temporal Cloud resource IDs for any related resources.
+type NamespaceReferences struct {
+	// Project is the Temporal Cloud resource identifier for the Project
+	// containing this Temporal Namespace.
+	Project string `json:"project,omitempty"`
+	// ConnectivityRules is the set of Temporal Cloud resource identifiers for
+	// any Namespace ConnectivityRules associated with this Temporal Namespace
+	ConnectivityRules []string `json:"connectivityRules,omitempty"`
 }
 
 // NamespaceList is a list of Namespace resources

@@ -15,12 +15,25 @@ import (
 	"github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 )
 
+func newNamespace() v1alpha1.Namespace {
+	ns := v1alpha1.Namespace{}
+	ns.Namespace = "my-ns"
+	ns.Name = "my-name"
+	ns.Spec.Project = &v1alpha1.ProjectReferenceOrID{
+		ID: "proj-1",
+	}
+	ns.Spec.Tags = map[string]string{"a": "1"}
+	return ns
+}
+
 // fullSpec and fullProtoNamespace describe the same namespace with every
 // field set. Pairs of booleans are given different values so that a swapped
 // field mapping is caught even if both directions swap it.
 func fullSpec() v1alpha1.NamespaceSpec {
 	return v1alpha1.NamespaceSpec{
-		Project:       "proj-1",
+		Project: &v1alpha1.ProjectReferenceOrID{
+			ID: "proj-1",
+		},
 		Tags:          map[string]string{"team": "core", "env": "prod"},
 		Replicas:      []v1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}, {Region: "aws-us-west-2"}},
 		RetentionDays: 30,
@@ -142,19 +155,25 @@ func TestNamespaceFromProto_Spec(t *testing.T) {
 		exp  v1alpha1.NamespaceSpec
 	}{
 		{
-			name: "nil proto yields empty spec",
-			in:   nil,
-			exp:  v1alpha1.NamespaceSpec{},
+			name: "nil proto keeps project and tags fields",
+			exp: v1alpha1.NamespaceSpec{
+				Project: &v1alpha1.ProjectReferenceOrID{
+					ID: "proj-1",
+				},
+				Tags: map[string]string{"a": "1"},
+			},
 		},
 		{
-			name: "nil proto spec keeps outer fields",
+			name: "nil proto spec keeps project field but overrides tags field",
 			in: &tcloudnamespacev1.Namespace{
-				ProjectId: "proj-1",
-				Tags:      map[string]string{"a": "1"},
+				ProjectId: "proj-other",
+				Tags:      map[string]string{"team": "core", "env": "prod"},
 			},
 			exp: v1alpha1.NamespaceSpec{
-				Project: "proj-1",
-				Tags:    map[string]string{"a": "1"},
+				Project: &v1alpha1.ProjectReferenceOrID{
+					ID: "proj-1",
+				},
+				Tags: map[string]string{"team": "core", "env": "prod"},
 			},
 		},
 		{
@@ -165,8 +184,13 @@ func TestNamespaceFromProto_Spec(t *testing.T) {
 					Replicas:      []*tcloudnamespacev1.ReplicaSpec{{Region: "aws-us-east-1"}},
 					RetentionDays: 7,
 				},
+				Tags: map[string]string{"a": "1"},
 			},
 			exp: v1alpha1.NamespaceSpec{
+				Project: &v1alpha1.ProjectReferenceOrID{
+					ID: "proj-1",
+				},
+				Tags:          map[string]string{"a": "1"},
 				Replicas:      []v1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}},
 				RetentionDays: 7,
 			},
@@ -174,12 +198,21 @@ func TestNamespaceFromProto_Spec(t *testing.T) {
 		{
 			name: "every field",
 			in:   fullProtoNamespace(),
-			exp:  fullSpec(),
+			exp: func() v1alpha1.NamespaceSpec {
+				ns := fullSpec()
+				// Project is never mutated.
+				ns.Project = &v1alpha1.ProjectReferenceOrID{
+					ID: "proj-1",
+				}
+				// But tags can be mutated from proto.
+				ns.Tags = map[string]string{"team": "core", "env": "prod"}
+				return ns
+			}(),
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(tt *testing.T) {
-			var ns v1alpha1.Namespace
+			ns := newNamespace()
 
 			got := ns.FromProto(tc.in)
 
@@ -212,7 +245,7 @@ func TestNamespaceFromProto_Status(t *testing.T) {
 			},
 			exp: cloudcommon.ResourceStatus{
 				ID:               "my-ns.acct1",
-				ResourceVersion:  "rv-1",
+				Version:          "rv-1",
 				State:            cloudcommon.ResourceStateActive,
 				AsyncOperationID: "op-1",
 				CreatedTime:      &metav1.Time{Time: created},
@@ -228,7 +261,7 @@ func TestNamespaceFromProto_Status(t *testing.T) {
 
 			got := ns.FromProto(tc.in)
 
-			require.Equal(tc.exp, got.Status.ResourceStatus)
+			require.Equal(tc.exp, got.Status.Resource)
 			// The qualified ID goes to status, never to metadata.name.
 			require.Equal("my-ns", got.Name)
 		})
@@ -256,7 +289,11 @@ func TestNamespaceToProto(t *testing.T) {
 	// ToProto sets only the fields that are sent to Temporal Cloud, so the
 	// qualified ID and status fields of the full proto are left unset.
 	full := fullProtoNamespace()
+
+	// The namespace and project ID are actually set from the Namespace CR's
+	// Metadata and Status, respectively.
 	full.Namespace = ""
+	full.ProjectId = ""
 
 	cases := []struct {
 		name string
@@ -287,58 +324,6 @@ func TestNamespaceToProto(t *testing.T) {
 		t.Run(tc.name, func(tt *testing.T) {
 			got := tc.in.ToProto()
 			require.True(tt, proto.Equal(tc.exp, got), "expected %v, got %v", tc.exp, got)
-		})
-	}
-}
-
-func TestNamespace_RoundTrip(t *testing.T) {
-	cases := []struct {
-		name string
-		spec v1alpha1.NamespaceSpec
-	}{
-		{
-			name: "minimal",
-			spec: v1alpha1.NamespaceSpec{
-				Replicas:      []v1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}},
-				RetentionDays: 7,
-			},
-		},
-		{
-			name: "every field",
-			spec: fullSpec(),
-		},
-		{
-			name: "on-demand capacity",
-			spec: v1alpha1.NamespaceSpec{
-				Replicas:      []v1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}},
-				RetentionDays: 7,
-				Capacity:      &v1alpha1.CapacitySpec{OnDemand: &v1alpha1.OnDemandCapacity{}},
-			},
-		},
-		{
-			name: "explicitly empty blocks stay non-nil",
-			spec: v1alpha1.NamespaceSpec{
-				Replicas:             []v1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}},
-				RetentionDays:        7,
-				MTLSAuth:             &v1alpha1.MTLSAuthSpec{},
-				APIKeyAuth:           &v1alpha1.APIKeyAuthSpec{},
-				CodecServer:          &v1alpha1.CodecServerSpec{CustomErrorMessage: &v1alpha1.CodecServerCustomErrorMessage{}},
-				Lifecycle:            &cloudcommon.LifecycleSpec{},
-				HighAvailability:     &v1alpha1.HighAvailabilitySpec{},
-				Fairness:             &v1alpha1.FairnessSpec{},
-				EncryptionValidation: &v1alpha1.EncryptionValidationSpec{Mode: v1alpha1.EncryptionValidationModeDisabled},
-			},
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(tt *testing.T) {
-			orig := namespaceWithSpec(tc.spec)
-			tp := orig.ToProto()
-
-			var ns v1alpha1.Namespace
-			fp := ns.FromProto(tp)
-
-			require.Equal(tt, tc.spec, fp.Spec)
 		})
 	}
 }

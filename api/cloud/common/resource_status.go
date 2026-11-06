@@ -17,20 +17,15 @@ type ResourceStatus struct {
 	// Namespaces.
 	// +optional
 	ID string `json:"id,omitempty"`
-	// ResourceVersion is the version of the resource in Temporal Cloud. It is
+	// Version is the version of the resource in Temporal Cloud. It is
 	// sent with each update and delete request.
 	// Maps to Temporal Cloud proto `resource_version`.
 	// +optional
-	ResourceVersion string `json:"resourceVersion,omitempty"`
+	Version string `json:"version,omitempty"`
 	// State is the state of the resource in Temporal Cloud.
 	// Maps to Temporal Cloud proto `state`.
 	// +optional
 	State ResourceState `json:"state,omitempty"`
-	// AsyncOperationID is the ID of the most recent asynchronous operation
-	// started on the resource.
-	// Maps to Temporal Cloud proto `async_operation_id`.
-	// +optional
-	AsyncOperationID string `json:"asyncOperationID,omitempty"`
 	// CreatedTime is when the resource was created in Temporal Cloud.
 	// Maps to Temporal Cloud proto `created_time`.
 	// +optional
@@ -40,6 +35,17 @@ type ResourceStatus struct {
 	// Maps to Temporal Cloud proto `last_modified_time`.
 	// +optional
 	LastModifiedTime *metav1.Time `json:"lastModifiedTime,omitempty"`
+	// asyncOperationID is an optional field that contains the ID of the last
+	// async operation on this resource that was NOT in a terminal state
+	// (FAILED, COMPLETED, FULFILLED,REJECTED) when this reconcile loop
+	// executed.
+	//
+	// The reconciler removes this field when it determines the operation has
+	// reached a terminal state.
+	//
+	// Maps to Temporal Cloud proto `async_operation_id`.
+	// +optional
+	AsyncOperationID string `json:"asyncOperationID,omitempty"`
 }
 
 // ResourceState is the state of a resource in Temporal Cloud.
