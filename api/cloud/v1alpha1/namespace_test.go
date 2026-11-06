@@ -19,7 +19,7 @@ func newNamespace() v1alpha1.Namespace {
 	ns := v1alpha1.Namespace{}
 	ns.Namespace = "my-ns"
 	ns.Name = "my-name"
-	ns.Spec.Project = &v1alpha1.ProjectReferenceOrID{
+	ns.Spec.Project = &cloudcommon.ResourceReferenceOrID{
 		ID: "proj-1",
 	}
 	ns.Spec.Tags = map[string]string{"a": "1"}
@@ -31,7 +31,7 @@ func newNamespace() v1alpha1.Namespace {
 // field mapping is caught even if both directions swap it.
 func fullSpec() v1alpha1.NamespaceSpec {
 	return v1alpha1.NamespaceSpec{
-		Project: &v1alpha1.ProjectReferenceOrID{
+		Project: &cloudcommon.ResourceReferenceOrID{
 			ID: "proj-1",
 		},
 		Tags:          map[string]string{"team": "core", "env": "prod"},
@@ -157,7 +157,7 @@ func TestNamespaceFromProto_Spec(t *testing.T) {
 		{
 			name: "nil proto keeps project and tags fields",
 			exp: v1alpha1.NamespaceSpec{
-				Project: &v1alpha1.ProjectReferenceOrID{
+				Project: &cloudcommon.ResourceReferenceOrID{
 					ID: "proj-1",
 				},
 				Tags: map[string]string{"a": "1"},
@@ -170,7 +170,7 @@ func TestNamespaceFromProto_Spec(t *testing.T) {
 				Tags:      map[string]string{"team": "core", "env": "prod"},
 			},
 			exp: v1alpha1.NamespaceSpec{
-				Project: &v1alpha1.ProjectReferenceOrID{
+				Project: &cloudcommon.ResourceReferenceOrID{
 					ID: "proj-1",
 				},
 				Tags: map[string]string{"team": "core", "env": "prod"},
@@ -187,7 +187,7 @@ func TestNamespaceFromProto_Spec(t *testing.T) {
 				Tags: map[string]string{"a": "1"},
 			},
 			exp: v1alpha1.NamespaceSpec{
-				Project: &v1alpha1.ProjectReferenceOrID{
+				Project: &cloudcommon.ResourceReferenceOrID{
 					ID: "proj-1",
 				},
 				Tags:          map[string]string{"a": "1"},
@@ -201,7 +201,7 @@ func TestNamespaceFromProto_Spec(t *testing.T) {
 			exp: func() v1alpha1.NamespaceSpec {
 				ns := fullSpec()
 				// Project is never mutated.
-				ns.Project = &v1alpha1.ProjectReferenceOrID{
+				ns.Project = &cloudcommon.ResourceReferenceOrID{
 					ID: "proj-1",
 				}
 				// But tags can be mutated from proto.

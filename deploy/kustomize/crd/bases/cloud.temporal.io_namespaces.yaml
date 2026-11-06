@@ -289,19 +289,20 @@ spec:
                   *or* a ProjectReference that points to a cloud.temporal.io/Project.
                 properties:
                   id:
-                    description: ID is the Temporal Cloud Project resource identifier
+                    description: ID is the Temporal Cloud resource identifier.
                     type: string
                   ref:
-                    description: Ref is an optional field that points at a cloud.temporal.io/Project.
+                    description: Ref is an optional field that points at a cloud.temporal.io
+                      custom resource
                     properties:
                       name:
-                        description: Name is the name of the Project.
+                        description: Name is the name of the custom resource.
                         type: string
                       namespace:
                         description: |-
                           Namespace contains the optional Kubernetes Namespace in which to find
-                          the Project. If empty, the Kubernetes Namespace containing the referring
-                          object is used.
+                          the custom resource. If empty, the Kubernetes Namespace containing the
+                          referring object is used.
                         type: string
                     required:
                     - name

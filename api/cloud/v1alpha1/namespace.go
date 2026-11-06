@@ -102,7 +102,7 @@ type NamespaceSpec struct {
 	// Project contains *either* a Temporal Cloud Project identifier string
 	// *or* a ProjectReference that points to a cloud.temporal.io/Project.
 	// +optional
-	Project *ProjectReferenceOrID `json:"project,omitempty"`
+	Project *cloudcommon.ResourceReferenceOrID `json:"project,omitempty"`
 	// Tags are key-value pairs to attach to the Namespace.
 	// Maps to Temporal Cloud proto `Namespace.tags`.
 	// +optional
