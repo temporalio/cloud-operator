@@ -101,7 +101,7 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 	tns := &tcloudv1alpha1.Namespace{}
 	tns.Name = tnsName
 	tns.Namespace = kubeNamespace
-	tns.Spec.Project = &tcloudv1alpha1.ProjectReferenceOrID{
+	tns.Spec.Project = &cloudcommon.ResourceReferenceOrID{
 		ID: project,
 	}
 	tns.Spec.RetentionDays = 7
@@ -137,7 +137,7 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 		// NOTE(jaypipes): The spec's project is never mutated once set.
 		// Instead, Status.Cloud.References.Project is set to the value
 		// returned from Temporal Cloud API.
-		Project: &tcloudv1alpha1.ProjectReferenceOrID{
+		Project: &cloudcommon.ResourceReferenceOrID{
 			ID: project,
 		},
 		Tags:          map[string]string{"team": "core"},

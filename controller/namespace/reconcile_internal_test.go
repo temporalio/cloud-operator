@@ -243,7 +243,7 @@ func TestSpecWithoutProjectAndTags(t *testing.T) {
 			name:    "project and tags are ignored",
 			desired: minimalSpec(),
 			latest: func(s *tcloudv1alpha1.NamespaceSpec) {
-				s.Project = &tcloudv1alpha1.ProjectReferenceOrID{
+				s.Project = &cloudcommon.ResourceReferenceOrID{
 					ID: "project-1",
 				}
 				s.Tags = map[string]string{"team": "payments"}

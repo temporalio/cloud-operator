@@ -333,7 +333,7 @@ func specWithoutProjectAndTags(
 	spec *tcloudv1alpha1.NamespaceSpec,
 ) *tcloudv1alpha1.NamespaceSpec {
 	out := spec.DeepCopy()
-	out.Project = &tcloudv1alpha1.ProjectReferenceOrID{
+	out.Project = &cloudcommon.ResourceReferenceOrID{
 		ID: "",
 	}
 	out.Tags = nil

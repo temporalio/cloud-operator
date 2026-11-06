@@ -52,6 +52,8 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&ConnectionList{},
 		&Namespace{},
 		&NamespaceList{},
+		&ServiceAccount{},
+		&ServiceAccountList{},
 	)
 	// AddToGroupVersion allows the serialization of client types like ListOptions.
 	v1.AddToGroupVersion(scheme, SchemeGroupVersion)
