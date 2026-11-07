@@ -16,10 +16,10 @@ import (
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 )
 
-// adoptNamespace decides whether the Namespace found by name can be linked to
-// latest, which has no status.id yet. It returns the Namespace to link, or nil
-// so the create path runs. Without the adoption-policy annotation it returns
-// found unchanged.
+// adoptNamespace decides whether the Namespace found by the resource-id
+// annotation can be linked to latest, which has the adoption-policy
+// annotation and no status.id yet. It returns the Namespace to link, or an
+// error that says why it can't be linked yet.
 //
 // The adopt policy takes two reconciles. The first copies Temporal Cloud's
 // settings into the CR's spec, sets the adopted annotation and requeues. The
@@ -32,7 +32,7 @@ func (r *Reconciler) adoptNamespace(
 ) (*tcloudnamespacev1.Namespace, error) {
 	cr := latest.CR().(*tcloudv1alpha1.Namespace)
 
-	policy, err := adoptionPolicy(latest)
+	_, err := adoptionPolicy(latest)
 	if err != nil {
 		// Annotation edits don't trigger a reconcile, so requeue to pick up
 		// a corrected value.
@@ -41,15 +41,33 @@ func (r *Reconciler) adoptNamespace(
 			requeue.DefaultRequeueAfterDuration,
 		)
 	}
-	if policy == "" {
-		return found, nil
+	id := resourceID(latest)
+	if id == "" {
+		return nil, requeue.NeededAfter(
+			fmt.Errorf(
+				"the %s annotation needs the %s annotation set to the ID of the tcloud namespace to adopt",
+				tcloudcommon.AnnotationKeyAdoptionPolicy, tcloudcommon.AnnotationKeyResourceID,
+			),
+			requeue.DefaultRequeueAfterDuration,
+		)
 	}
 
 	var state tcloudcommon.ResourceState
 	state.FromProto(found.GetState())
 	if found == nil || state == tcloudcommon.ResourceStateDeleted {
 		return nil, requeue.NeededAfter(
-			fmt.Errorf("no tcloud namespace named %q to adopt", cr.Name),
+			fmt.Errorf("no tcloud namespace with ID %q to adopt", id),
+			requeue.DefaultRequeueAfterDuration,
+		)
+	}
+
+	// The CR's name must be the Namespace's name
+	if name := found.GetSpec().GetName(); name != cr.Name {
+		return nil, requeue.NeededAfter(
+			fmt.Errorf(
+				"can't adopt tcloud namespace %q: its name %q doesn't match the CR's name %q",
+				id, name, cr.Name,
+			),
 			requeue.DefaultRequeueAfterDuration,
 		)
 	}
@@ -101,6 +119,13 @@ func (r *Reconciler) adoptNamespace(
 	}
 
 	return found, nil
+}
+
+// resourceID returns the subject's cloud.temporal.io/resource-id annotation
+// value with surrounding whitespace removed, or "" if it is unset.
+func resourceID(subject types.Resource) string {
+	v, _ := annotation.Value(subject, tcloudcommon.AnnotationKeyResourceID)
+	return strings.TrimSpace(v)
 }
 
 // isAdopted returns true if the subject has the cloud.temporal.io/adopted

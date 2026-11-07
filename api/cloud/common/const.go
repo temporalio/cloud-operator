@@ -21,6 +21,10 @@ const (
 	// AdoptionPolicy.
 	AnnotationKeyAdoptionPolicy = AnnotationKeyPrefixTemporalCloud + "adoption-policy"
 
+	// AnnotationKeyResourceID is the ID of the existing Temporal Cloud
+	// resource to adopt. It is required with the adoption-policy annotation.
+	AnnotationKeyResourceID = AnnotationKeyPrefixTemporalCloud + "resource-id"
+
 	// AnnotationKeyAdopted marks a custom resource whose Temporal Cloud
 	// resource the controller adopted rather than created. Without a
 	// deletion-policy annotation, an adopted resource is retained when its

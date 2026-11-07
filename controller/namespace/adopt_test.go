@@ -99,13 +99,21 @@ func TestAdoptNamespace(t *testing.T) {
 	refused := func(state string) string {
 		return fmt.Sprintf("can't adopt tcloud namespace %q in state %q", id, state)
 	}
-	const nothingFound = `no tcloud namespace named "tmprl-ns" to adopt`
+	const nothingFound = `no tcloud namespace with ID "tmprl-ns.acct1" to adopt`
+	const noID = `the cloud.temporal.io/adoption-policy annotation needs the cloud.temporal.io/resource-id annotation`
+	otherName := found(tcloudresourcev1.ResourceState_RESOURCE_STATE_ACTIVE)
+	otherName.Spec.Name = "other-ns"
 
 	cases := []struct {
 		name string
 		// policy is the adoption-policy annotation value. Empty means no
 		// annotation.
 		policy string
+		// resourceID is the resource-id annotation value. Empty means the
+		// ID of found when policy is set, and no annotation otherwise.
+		resourceID string
+		// noResourceID leaves out the resource-id annotation.
+		noResourceID bool
 		// adopted sets the adopted annotation to "true", as the first
 		// adopt pass does.
 		adopted   bool
@@ -113,17 +121,6 @@ func TestAdoptNamespace(t *testing.T) {
 		expLinked bool
 		expErr    string
 	}{
-		{name: "no policy and nothing found creates"},
-		{
-			name:      "no policy links found namespace without marking it adopted",
-			found:     found(tcloudresourcev1.ResourceState_RESOURCE_STATE_ACTIVE),
-			expLinked: true,
-		},
-		{
-			name:      "no policy links deleted namespace as before",
-			found:     found(tcloudresourcev1.ResourceState_RESOURCE_STATE_DELETED),
-			expLinked: true,
-		},
 		{
 			name:   "invalid policy is refused",
 			policy: "import",
@@ -137,6 +134,32 @@ func TestAdoptNamespace(t *testing.T) {
 			expErr: `invalid adoption policy "adopt-or-create"`,
 		},
 		{name: "adopt with nothing found doesn't create", policy: "adopt", expErr: nothingFound},
+		{
+			name: "adopt without resource-id is refused", policy: "adopt", noResourceID: true,
+			found:  found(tcloudresourcev1.ResourceState_RESOURCE_STATE_ACTIVE),
+			expErr: noID,
+		},
+		{
+			name: "adopt with blank resource-id is refused", policy: "adopt", resourceID: "  ",
+			found:  found(tcloudresourcev1.ResourceState_RESOURCE_STATE_ACTIVE),
+			expErr: noID,
+		},
+		{
+			name: "invalid policy is refused before missing resource-id", policy: "import",
+			noResourceID: true,
+			expErr:       `invalid adoption policy "import"`,
+		},
+		{
+			name: "adopt refuses namespace whose name doesn't match the CR", policy: "adopt",
+			found:  otherName,
+			expErr: `can't adopt tcloud namespace "tmprl-ns.acct1": its name "other-ns" doesn't match the CR's name "tmprl-ns"`,
+		},
+		{
+			name: "adopt trims resource-id", policy: "adopt", resourceID: " tmprl-ns.acct1 ",
+			adopted:   true,
+			found:     found(tcloudresourcev1.ResourceState_RESOURCE_STATE_ACTIVE),
+			expLinked: true,
+		},
 		{
 			name:   "adopt treats deleted namespace as nothing to adopt",
 			policy: "adopt",
@@ -206,6 +229,13 @@ func TestAdoptNamespace(t *testing.T) {
 			cr.Annotations = map[string]string{}
 			if tc.policy != "" {
 				cr.Annotations[tcloudcommon.AnnotationKeyAdoptionPolicy] = tc.policy
+				if !tc.noResourceID {
+					rid := tc.resourceID
+					if rid == "" {
+						rid = id
+					}
+					cr.Annotations[tcloudcommon.AnnotationKeyResourceID] = rid
+				}
 			}
 			if tc.adopted {
 				cr.Annotations[tcloudcommon.AnnotationKeyAdopted] = "true"
@@ -278,6 +308,7 @@ func TestAdoptNamespace_Patches(t *testing.T) {
 			cr.Namespace = "temporal-cloud-operator"
 			cr.Annotations = map[string]string{
 				tcloudcommon.AnnotationKeyAdoptionPolicy: "adopt",
+				tcloudcommon.AnnotationKeyResourceID:     "tmprl-ns.acct1",
 				"example.com/other":                      "kept",
 			}
 			if tc.adopted != "" {
@@ -305,6 +336,7 @@ func TestAdoptNamespace_Patches(t *testing.T) {
 			require.NoError(kc.Get(ctx, kclient.ObjectKeyFromObject(cr), patched))
 			require.Equal(map[string]string{
 				tcloudcommon.AnnotationKeyAdoptionPolicy: "adopt",
+				tcloudcommon.AnnotationKeyResourceID:     "tmprl-ns.acct1",
 				tcloudcommon.AnnotationKeyAdopted:        "true",
 				"example.com/other":                      "kept",
 			}, patched.Annotations)
@@ -337,6 +369,26 @@ func TestIsAdopted(t *testing.T) {
 			cr := &tcloudv1alpha1.Namespace{}
 			cr.Annotations = tc.annotations
 			require.Equal(t, tc.exp, isAdopted(&res{cr}))
+		})
+	}
+}
+
+func TestResourceID(t *testing.T) {
+	cases := []struct {
+		name        string
+		annotations map[string]string
+		exp         string
+	}{
+		{name: "unset"},
+		{name: "set", annotations: map[string]string{tcloudcommon.AnnotationKeyResourceID: "ns.acct1"}, exp: "ns.acct1"},
+		{name: "whitespace is trimmed", annotations: map[string]string{tcloudcommon.AnnotationKeyResourceID: " ns.acct1 "}, exp: "ns.acct1"},
+		{name: "blank", annotations: map[string]string{tcloudcommon.AnnotationKeyResourceID: " "}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cr := &tcloudv1alpha1.Namespace{}
+			cr.Annotations = tc.annotations
+			require.Equal(t, tc.exp, resourceID(&res{cr}))
 		})
 	}
 }

@@ -10,6 +10,8 @@ import (
 	tcloudservicev1 "go.temporal.io/cloud-sdk/api/cloudservice/v1"
 	tcloudnamespacev1 "go.temporal.io/cloud-sdk/api/namespace/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"k8s.io/apimachinery/pkg/api/equality"
 
@@ -18,7 +20,8 @@ import (
 )
 
 // fakeCloudService implements GetNamespaces by returning the supplied pages
-// in order. Calling any other method panics via the nil embedded interface.
+// in order, and GetNamespace by returning getResp and getErr. Calling any
+// other method panics via the nil embedded interface.
 type fakeCloudService struct {
 	tcloudservicev1.CloudServiceClient
 
@@ -27,6 +30,19 @@ type fakeCloudService struct {
 	// reqs records a copy of every request, since findNamespaceByName
 	// reuses and mutates one request across pages.
 	reqs []*tcloudservicev1.GetNamespacesRequest
+
+	getResp *tcloudservicev1.GetNamespaceResponse
+	getErr  error
+	getReqs []*tcloudservicev1.GetNamespaceRequest
+}
+
+func (f *fakeCloudService) GetNamespace(
+	_ context.Context,
+	req *tcloudservicev1.GetNamespaceRequest,
+	_ ...grpc.CallOption,
+) (*tcloudservicev1.GetNamespaceResponse, error) {
+	f.getReqs = append(f.getReqs, req)
+	return f.getResp, f.getErr
 }
 
 func (f *fakeCloudService) GetNamespaces(
@@ -45,6 +61,53 @@ func namespaceNamed(name string) *tcloudnamespacev1.Namespace {
 	return &tcloudnamespacev1.Namespace{
 		Namespace: name + ".acct1",
 		Spec:      &tcloudnamespacev1.NamespaceSpec{Name: name},
+	}
+}
+
+func TestGetNamespaceByID(t *testing.T) {
+	cases := []struct {
+		name   string
+		fake   *fakeCloudService
+		expID  string
+		expErr string
+	}{
+		{
+			name: "found",
+			fake: &fakeCloudService{
+				getResp: &tcloudservicev1.GetNamespaceResponse{Namespace: namespaceNamed("my-ns")},
+			},
+			expID: "my-ns.acct1",
+		},
+		{
+			name: "nil when not found",
+			fake: &fakeCloudService{getErr: status.Error(codes.NotFound, "namespace not found")},
+		},
+		{
+			name:   "returns other errors",
+			fake:   &fakeCloudService{getErr: status.Error(codes.Unavailable, "boom")},
+			expErr: "boom",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(tt *testing.T) {
+			require := require.New(tt)
+
+			got, err := getNamespaceByID(context.TODO(), tc.fake, "my-ns.acct1")
+
+			require.Len(tc.fake.getReqs, 1)
+			require.Equal("my-ns.acct1", tc.fake.getReqs[0].GetNamespace())
+			if tc.expErr != "" {
+				require.ErrorContains(err, tc.expErr)
+				require.Nil(got)
+				return
+			}
+			require.NoError(err)
+			if tc.expID == "" {
+				require.Nil(got)
+				return
+			}
+			require.Equal(tc.expID, got.GetNamespace())
+		})
 	}
 }
 

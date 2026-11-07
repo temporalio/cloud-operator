@@ -22,6 +22,7 @@ import (
 	tcloudresourcev1 "go.temporal.io/cloud-sdk/api/resource/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	ctrlrt "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -165,14 +166,40 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 		ns.Spec = tcloudv1alpha1.NamespaceSpec{}
 		ns.Status.ResourceStatus = cloudcommon.ResourceStatus{}
 	}
-	// withAnnotation returns a copy of the supplied CR with only the
-	// supplied annotation.
-	withAnnotation := func(
+	// withAnnotations returns a copy of the supplied CR with only the
+	// supplied annotations.
+	withAnnotations := func(
 		ns *tcloudv1alpha1.Namespace,
-		key, value string,
+		annos map[string]string,
 	) *tcloudv1alpha1.Namespace {
 		out := ns.DeepCopy()
-		out.Annotations = map[string]string{key: value}
+		out.Annotations = annos
+		return out
+	}
+	// adoptByID is the annotations a user sets to adopt tnsID.
+	adoptByID := map[string]string{
+		cloudcommon.AnnotationKeyAdoptionPolicy: "adopt",
+		cloudcommon.AnnotationKeyResourceID:     tnsID,
+	}
+	// tnsToLink is an unsynced CR the first adopt pass has already run on:
+	// its spec matches cloudNS and it's marked adopted, so adopt links it.
+	tnsToLink := withAnnotations(tns, map[string]string{
+		cloudcommon.AnnotationKeyAdoptionPolicy: "adopt",
+		cloudcommon.AnnotationKeyResourceID:     tnsID,
+		cloudcommon.AnnotationKeyAdopted:        "true",
+	})
+	tnsToLink.Spec = tcloudv1alpha1.NamespaceSpec{
+		Project:       project,
+		Tags:          map[string]string{"team": "core"},
+		Replicas:      []tcloudv1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}},
+		RetentionDays: 30,
+	}
+	// cloudNSWith returns a copy of cloudNS after applying mutate.
+	cloudNSWith := func(
+		mutate func(*tcloudnamespacev1.Namespace),
+	) *tcloudnamespacev1.Namespace {
+		out := proto.Clone(cloudNS).(*tcloudnamespacev1.Namespace)
+		mutate(out)
 		return out
 	}
 
@@ -289,6 +316,27 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 			latest: withLatest(tns, mappedFromCloud),
 		},
 		{
+			// Only adopt checks the state. Without the adoption-policy
+			// annotation, the namespace found by name is linked as is.
+			name: "namespace found by name is linked in any state",
+			serverOpts: []fakeserver.NewOption{
+				fakeserver.OnGetNamespacesReturn(
+					&tcloudservicev1.GetNamespacesResponse{
+						Namespaces: []*tcloudnamespacev1.Namespace{
+							cloudNSWith(func(ns *tcloudnamespacev1.Namespace) {
+								ns.State = tcloudresourcev1.ResourceState_RESOURCE_STATE_DELETED
+							}),
+						},
+					}, nil,
+				),
+			},
+			res: namespace.NewResource(tns),
+			latest: withLatest(tns, func(ns *tcloudv1alpha1.Namespace) {
+				mappedFromCloud(ns)
+				ns.Status.State = cloudcommon.ResourceStateDeleted
+			}),
+		},
+		{
 			name: "latest is cleared if not found by name",
 			serverOpts: []fakeserver.NewOption{
 				fakeserver.OnGetNamespacesReturn(
@@ -298,18 +346,90 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 			res:    namespace.NewResource(tns),
 			latest: withLatest(tns, cleared),
 		},
+		// The adopt cases below implement only GetNamespace on the fake
+		// server, so listing by name fails them with Unimplemented.
 		{
-			name: "adopt with nothing found requeues and doesn't create",
+			name: "adopt gets namespace by resource-id",
+			asserter: func(tt *testing.T) fakeserver.GetNamespaceAssertFunc {
+				assert := assert.New(tt)
+				return func(req *tcloudservicev1.GetNamespaceRequest) {
+					assert.Equal(tnsID, req.GetNamespace())
+				}
+			},
+			res:        namespace.NewResource(withAnnotations(tns, adoptByID)),
+			expErr:     `no tcloud namespace with ID "tmprl-ns.acct1" to adopt`,
+			expRequeue: true,
+		},
+		{
+			name: "adopt links namespace found by resource-id",
 			serverOpts: []fakeserver.NewOption{
-				fakeserver.OnGetNamespacesReturn(
-					&tcloudservicev1.GetNamespacesResponse{}, nil,
+				fakeserver.OnGetNamespaceReturn(
+					&tcloudservicev1.GetNamespaceResponse{Namespace: cloudNS}, nil,
 				),
 			},
-			res: namespace.NewResource(withAnnotation(
-				tns, cloudcommon.AnnotationKeyAdoptionPolicy, "adopt",
-			)),
-			expErr:     `no tcloud namespace named "tmprl-ns" to adopt`,
+			res:    namespace.NewResource(tnsToLink),
+			latest: withLatest(tnsToLink, mappedFromCloud),
+		},
+		{
+			name: "adopt with resource-id not found requeues and doesn't create",
+			serverOpts: []fakeserver.NewOption{
+				fakeserver.OnGetNamespaceReturn(
+					nil, status.Error(codes.NotFound, "namespace not found"),
+				),
+			},
+			res:        namespace.NewResource(withAnnotations(tns, adoptByID)),
+			expErr:     `no tcloud namespace with ID "tmprl-ns.acct1" to adopt`,
 			expRequeue: true,
+		},
+		{
+			name: "adopt with deleted namespace requeues and doesn't create",
+			serverOpts: []fakeserver.NewOption{
+				fakeserver.OnGetNamespaceReturn(
+					&tcloudservicev1.GetNamespaceResponse{
+						Namespace: cloudNSWith(func(ns *tcloudnamespacev1.Namespace) {
+							ns.State = tcloudresourcev1.ResourceState_RESOURCE_STATE_DELETED
+						}),
+					}, nil,
+				),
+			},
+			res:        namespace.NewResource(withAnnotations(tns, adoptByID)),
+			expErr:     `no tcloud namespace with ID "tmprl-ns.acct1" to adopt`,
+			expRequeue: true,
+		},
+		{
+			// No fake server methods: a lookup would fail with
+			// Unimplemented instead.
+			name: "adopt without resource-id requeues without a lookup",
+			res: namespace.NewResource(withAnnotations(tns, map[string]string{
+				cloudcommon.AnnotationKeyAdoptionPolicy: "adopt",
+			})),
+			expErr:     `needs the cloud.temporal.io/resource-id annotation`,
+			expRequeue: true,
+		},
+		{
+			name: "adopt refuses namespace whose name doesn't match the CR",
+			serverOpts: []fakeserver.NewOption{
+				fakeserver.OnGetNamespaceReturn(
+					&tcloudservicev1.GetNamespaceResponse{
+						Namespace: cloudNSWith(func(ns *tcloudnamespacev1.Namespace) {
+							ns.Spec.Name = "other-ns"
+						}),
+					}, nil,
+				),
+			},
+			res:        namespace.NewResource(withAnnotations(tns, adoptByID)),
+			expErr:     `its name "other-ns" doesn't match the CR's name "tmprl-ns"`,
+			expRequeue: true,
+		},
+		{
+			name: "fail if tcloud get namespace to adopt errors",
+			serverOpts: []fakeserver.NewOption{
+				fakeserver.OnGetNamespaceReturn(
+					nil, fmt.Errorf("Indy! Bad dates!"),
+				),
+			},
+			res:    namespace.NewResource(withAnnotations(tns, adoptByID)),
+			expErr: `failed getting tcloud namespace "tmprl-ns.acct1" to adopt: rpc error: code = Unknown desc = Indy! Bad dates!`,
 		},
 	}
 	for _, tc := range cases {
@@ -400,18 +520,20 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 }
 
 // TestReconciler_ResourceSetLatest_AdoptTwoPasses runs the adopt policy on a
-// name-only CR: the first pass copies Temporal Cloud's settings into the spec
-// without linking, and the second links it with no Temporal Cloud update.
+// CR with only a name and annotations: the first pass gets the namespace by
+// its resource-id and copies Temporal Cloud's settings into the spec without
+// linking, and the second links it with no Temporal Cloud update.
 func TestReconciler_ResourceSetLatest_AdoptTwoPasses(t *testing.T) {
 	require := require.New(t)
 	ctx := context.TODO()
 
-	// The user writes only the name and the adopt annotation.
+	// The user writes only the name and the adopt annotations.
 	cr := &tcloudv1alpha1.Namespace{}
 	cr.Name = "tmprl-ns"
 	cr.Namespace = kubeNamespace
 	cr.Annotations = map[string]string{
 		cloudcommon.AnnotationKeyAdoptionPolicy: "adopt",
+		cloudcommon.AnnotationKeyResourceID:     "tmprl-ns.acct1",
 	}
 
 	cloudNS := &tcloudnamespacev1.Namespace{
@@ -431,14 +553,17 @@ func TestReconciler_ResourceSetLatest_AdoptTwoPasses(t *testing.T) {
 		State:           tcloudresourcev1.ResourceState_RESOURCE_STATE_ACTIVE,
 	}
 
-	// Only listing is implemented. Create, update and tag calls return
-	// Unimplemented, so ResourceSync below fails if adopting makes one.
+	// Only GetNamespace is implemented. Listing, create, update and tag
+	// calls return Unimplemented, so a lookup by name fails, and
+	// ResourceSync below fails if adopting makes a change.
+	var getIDs []string
 	srv, err := fakeserver.New(
-		fakeserver.OnGetNamespacesReturn(
-			&tcloudservicev1.GetNamespacesResponse{
-				Namespaces: []*tcloudnamespacev1.Namespace{cloudNS},
-			}, nil,
-		),
+		fakeserver.WithGetNamespace(func(
+			_ context.Context, req *tcloudservicev1.GetNamespaceRequest,
+		) (*tcloudservicev1.GetNamespaceResponse, error) {
+			getIDs = append(getIDs, req.GetNamespace())
+			return &tcloudservicev1.GetNamespaceResponse{Namespace: cloudNS}, nil
+		}),
 	)
 	require.NoError(err)
 	t.Cleanup(srv.Start())
@@ -498,6 +623,7 @@ func TestReconciler_ResourceSetLatest_AdoptTwoPasses(t *testing.T) {
 	got := latest.CR().(*tcloudv1alpha1.Namespace)
 	require.Equal("tmprl-ns.acct1", got.Status.ID)
 	require.Equal("true", got.Annotations[cloudcommon.AnnotationKeyAdopted])
+	require.Equal([]string{"tmprl-ns.acct1", "tmprl-ns.acct1"}, getIDs)
 
 	// The specs match, so the sync makes no Temporal Cloud calls.
 	require.NoError(r.ResourceSync(ctx, desired, latest))
@@ -516,6 +642,7 @@ func TestReconciler_ResourceSetLatest_AdoptedDeletedOutsideOperator(t *testing.T
 	cr.Namespace = kubeNamespace
 	cr.Annotations = map[string]string{
 		cloudcommon.AnnotationKeyAdoptionPolicy: "adopt",
+		cloudcommon.AnnotationKeyResourceID:     "tmprl-ns.acct1",
 		cloudcommon.AnnotationKeyAdopted:        "true",
 	}
 	cr.Spec.Replicas = []tcloudv1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}}
@@ -564,6 +691,7 @@ func TestReconciler_ResourceSetLatest_AdoptedDeletedOutsideOperator(t *testing.T
 	stored := readCR()
 	require.Equal(map[string]string{
 		cloudcommon.AnnotationKeyAdoptionPolicy: "adopt",
+		cloudcommon.AnnotationKeyResourceID:     "tmprl-ns.acct1",
 	}, stored.Annotations)
 	require.Equal("tmprl-ns.acct1", stored.Status.ID)
 

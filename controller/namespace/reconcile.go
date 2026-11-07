@@ -119,35 +119,40 @@ func (r *Reconciler) ResourceSetLatest(
 
 	var tns *tcloudnamespacev1.Namespace
 	if cr.Status.ID == "" {
-		// The qualified namespace name is only known once a reconcile after
-		// the create has saved it to status, and status can be lost (e.g. the
-		// CR was recreated). Look the namespace up by name so that a duplicate
-		// is never created.
-		tns, err = findNamespaceByName(ctx, tcc, cr.Name)
-		if err != nil {
-			return fmt.Errorf("failed listing tcloud namespaces: %w", err)
-		}
+		// Check if this is a resource adoption
+		if annotation.HasKey(latest, cloudcommon.AnnotationKeyAdoptionPolicy) {
+			// A namespace to adopt is looked up by the ID the user supplied.
+			if id := resourceID(latest); id != "" {
+				tns, err = getNamespaceByID(ctx, tcc, id)
+				if err != nil {
+					return fmt.Errorf("failed getting tcloud namespace %q to adopt: %w", id, err)
+				}
+			}
 
-		// The adoption-policy annotation decides whether the namespace
-		// found can be linked to this CR.
-		tns, err = r.adoptNamespace(ctx, latest, tns)
-		if err != nil {
-			return err
+			// adoptNamespace decides whether the namespace found can be
+			// linked to this CR.
+			tns, err = r.adoptNamespace(ctx, latest, tns)
+			if err != nil {
+				return err
+			}
+		} else {
+			// The qualified namespace name is only known once a reconcile
+			// after the create has saved it to status, and status can be lost
+			// (e.g. the CR was recreated). Look the namespace up by name so
+			// that a duplicate is never created.
+			tns, err = findNamespaceByName(ctx, tcc, cr.Name)
+			if err != nil {
+				return fmt.Errorf("failed listing tcloud namespaces: %w", err)
+			}
 		}
 	} else {
-		var resp *tcloudservicev1.GetNamespaceResponse
-		resp, err = tcc.GetNamespace(ctx, &tcloudservicev1.GetNamespaceRequest{
-			Namespace: cr.Status.ID,
-		})
-		if status.Code(err) == codes.NotFound {
-			// The namespace was deleted outside of the operator. Treat it
-			// the same as one that was never created so ResourceSync
-			// recreates it.
-			err = nil
-		} else if err != nil {
+		// A nil namespace means it was deleted outside of the operator.
+		// It's treated the same as one that was never created, so
+		// ResourceSync recreates it.
+		tns, err = getNamespaceByID(ctx, tcc, cr.Status.ID)
+		if err != nil {
 			return fmt.Errorf("failed getting tcloud namespace: %w", err)
 		}
-		tns = resp.GetNamespace()
 	}
 
 	if tns == nil {
@@ -407,6 +412,24 @@ func cloudCallError(action string, err error) error {
 		return requeue.NeededAfter(wrapped, requeue.DefaultRequeueAfterDuration)
 	}
 	return wrapped
+}
+
+// getNamespaceByID returns the Temporal Cloud Namespace with the supplied ID
+func getNamespaceByID(
+	ctx context.Context,
+	tcc tcloudservicev1.CloudServiceClient,
+	id string,
+) (*tcloudnamespacev1.Namespace, error) {
+	resp, err := tcc.GetNamespace(ctx, &tcloudservicev1.GetNamespaceRequest{
+		Namespace: id,
+	})
+	if status.Code(err) == codes.NotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return resp.GetNamespace(), nil
 }
 
 // findNamespaceByName returns the Temporal Cloud Namespace with the supplied
