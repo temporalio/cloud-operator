@@ -23,6 +23,11 @@ tests:
    require:
      len: 1
 
+ - name: ensure-project-crd
+   kube.get: crds/projects.cloud.temporal.io
+   require:
+     len: 1
+
  - name: ensure-serviceaccount
    kube.get: serviceaccounts/temporal-cloud-operator
    require:
