@@ -456,15 +456,6 @@ spec:
                   sent with each update and delete request.
                   Maps to Temporal Cloud proto `resource_version`.
                 type: string
-              source:
-                description: |-
-                  Source is where the Temporal Cloud Namespace came from. Adopted means
-                  the operator adopted a Namespace that already existed, so it is
-                  retained when the CR is deleted unless the deletion-policy annotation
-                  says delete. Empty otherwise.
-                enum:
-                - Adopted
-                type: string
               state:
                 description: |-
                   State is the state of the resource in Temporal Cloud.

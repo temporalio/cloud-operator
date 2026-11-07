@@ -10,9 +10,11 @@ import (
 	"github.com/temporalio/kube-temporal/pkg/controller/requeue"
 	tcloudnamespacev1 "go.temporal.io/cloud-sdk/api/namespace/v1"
 	tcloudresourcev1 "go.temporal.io/cloud-sdk/api/resource/v1"
+	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	tcloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
+	testkube "github.com/temporalio/cloud-operator/pkg/testutil/kube"
 )
 
 func TestAdoptionPolicy(t *testing.T) {
@@ -103,10 +105,12 @@ func TestAdoptNamespace(t *testing.T) {
 		name string
 		// policy is the adoption-policy annotation value. Empty means no
 		// annotation.
-		policy    string
+		policy string
+		// adopted sets the adopted annotation to "true", as the first
+		// adopt pass does.
+		adopted   bool
 		found     *tcloudnamespacev1.Namespace
 		expLinked bool
-		expSource tcloudcommon.ResourceSource
 		expErr    string
 	}{
 		{name: "no policy and nothing found creates"},
@@ -141,18 +145,21 @@ func TestAdoptNamespace(t *testing.T) {
 		},
 		{
 			name: "adopt links active namespace", policy: "adopt",
+			adopted:   true,
 			found:     found(tcloudresourcev1.ResourceState_RESOURCE_STATE_ACTIVE),
-			expLinked: true, expSource: tcloudcommon.ResourceSourceAdopted,
+			expLinked: true,
 		},
 		{
 			name: "adopt links activating namespace", policy: "adopt",
+			adopted:   true,
 			found:     found(tcloudresourcev1.ResourceState_RESOURCE_STATE_ACTIVATING),
-			expLinked: true, expSource: tcloudcommon.ResourceSourceAdopted,
+			expLinked: true,
 		},
 		{
 			name: "adopt links updating namespace", policy: "adopt",
+			adopted:   true,
 			found:     found(tcloudresourcev1.ResourceState_RESOURCE_STATE_UPDATING),
-			expLinked: true, expSource: tcloudcommon.ResourceSourceAdopted,
+			expLinked: true,
 		},
 		{
 			name: "adopt refuses deleting namespace", policy: "adopt",
@@ -196,14 +203,16 @@ func TestAdoptNamespace(t *testing.T) {
 
 			cr := &tcloudv1alpha1.Namespace{}
 			cr.Name = "tmprl-ns"
+			cr.Annotations = map[string]string{}
 			if tc.policy != "" {
-				cr.Annotations = map[string]string{
-					tcloudcommon.AnnotationKeyAdoptionPolicy: tc.policy,
-				}
+				cr.Annotations[tcloudcommon.AnnotationKeyAdoptionPolicy] = tc.policy
+			}
+			if tc.adopted {
+				cr.Annotations[tcloudcommon.AnnotationKeyAdopted] = "true"
 			}
 			if tc.found != nil {
 				// Matching specs, so adopt links instead of patching.
-				// Patching is covered by
+				// Patching is covered by TestAdoptNamespace_Patches and
 				// TestReconciler_ResourceSetLatest_AdoptTwoPasses.
 				cr.Spec = adoptedSpec(cr, tc.found)
 			}
@@ -227,7 +236,107 @@ func TestAdoptNamespace(t *testing.T) {
 			} else {
 				require.Nil(got)
 			}
-			require.Equal(tc.expSource, cr.Status.Source)
+			require.Equal(before, cr, "linking must not change latest")
+		})
+	}
+}
+
+// TestAdoptNamespace_Patches checks that the adopt policy stores the adopted
+// annotation, and Temporal Cloud's settings if the spec differs, before it
+// links the Namespace.
+func TestAdoptNamespace_Patches(t *testing.T) {
+	found := &tcloudnamespacev1.Namespace{
+		Namespace: "tmprl-ns.acct1",
+		Spec: &tcloudnamespacev1.NamespaceSpec{
+			Name:          "tmprl-ns",
+			Replicas:      []*tcloudnamespacev1.ReplicaSpec{{Region: "aws-us-east-1"}},
+			RetentionDays: 30,
+		},
+		State: tcloudresourcev1.ResourceState_RESOURCE_STATE_ACTIVE,
+	}
+
+	cases := []struct {
+		name string
+		// adopted is the adopted annotation value. Empty means no
+		// annotation.
+		adopted string
+		// matching is whether the CR's spec already matches found.
+		matching bool
+	}{
+		{name: "spec differs and not adopted"},
+		{name: "spec matches but not adopted", matching: true},
+		{name: "spec differs but already adopted", adopted: "true"},
+		{name: "adopted false is set to true", adopted: "false", matching: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctx := context.TODO()
+
+			cr := &tcloudv1alpha1.Namespace{}
+			cr.Name = "tmprl-ns"
+			cr.Namespace = "temporal-cloud-operator"
+			cr.Annotations = map[string]string{
+				tcloudcommon.AnnotationKeyAdoptionPolicy: "adopt",
+				"example.com/other":                      "kept",
+			}
+			if tc.adopted != "" {
+				cr.Annotations[tcloudcommon.AnnotationKeyAdopted] = tc.adopted
+			}
+			if tc.matching {
+				cr.Spec = adoptedSpec(cr, found)
+			}
+
+			kc := testkube.NewFakeClient(cr)
+			stored := &tcloudv1alpha1.Namespace{}
+			require.NoError(kc.Get(ctx, kclient.ObjectKeyFromObject(cr), stored))
+			before := stored.DeepCopy()
+
+			r := NewReconciler(WithKubeClient(kc))
+			got, err := r.adoptNamespace(ctx, &res{stored}, found)
+
+			require.ErrorContains(err, "marked it adopted, waiting to link it")
+			var requeueAfter *requeue.RequeueNeededAfter
+			require.True(errors.As(err, &requeueAfter), "expected requeue error, got %v", err)
+			require.Nil(got, "must not link before the annotation is stored")
+			require.Equal(before, stored, "patching must not change latest")
+
+			patched := &tcloudv1alpha1.Namespace{}
+			require.NoError(kc.Get(ctx, kclient.ObjectKeyFromObject(cr), patched))
+			require.Equal(map[string]string{
+				tcloudcommon.AnnotationKeyAdoptionPolicy: "adopt",
+				tcloudcommon.AnnotationKeyAdopted:        "true",
+				"example.com/other":                      "kept",
+			}, patched.Annotations)
+			require.Equal(adoptedSpec(cr, found), patched.Spec)
+			require.Empty(patched.Status.ID)
+
+			// The next pass links it without patching again.
+			latest := &res{patched.DeepCopy()}
+			got, err = r.adoptNamespace(ctx, latest, found)
+			require.NoError(err)
+			require.Same(found, got)
+		})
+	}
+}
+
+func TestIsAdopted(t *testing.T) {
+	cases := []struct {
+		name        string
+		annotations map[string]string
+		exp         bool
+	}{
+		{name: "unset"},
+		{name: "true", annotations: map[string]string{tcloudcommon.AnnotationKeyAdopted: "true"}, exp: true},
+		{name: "mixed case and whitespace", annotations: map[string]string{tcloudcommon.AnnotationKeyAdopted: " TRUE "}, exp: true},
+		{name: "false", annotations: map[string]string{tcloudcommon.AnnotationKeyAdopted: "false"}},
+		{name: "other value", annotations: map[string]string{tcloudcommon.AnnotationKeyAdopted: "yes"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cr := &tcloudv1alpha1.Namespace{}
+			cr.Annotations = tc.annotations
+			require.Equal(t, tc.exp, isAdopted(&res{cr}))
 		})
 	}
 }

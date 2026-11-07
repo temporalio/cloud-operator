@@ -957,12 +957,6 @@ func (m EncryptionValidationMode) ToProto() tcloudnamespacev1.EncryptionValidati
 type NamespaceStatus struct {
 	tmprlcorev1.StatusBase     `json:",inline"`
 	cloudcommon.ResourceStatus `json:",inline"`
-	// Source is where the Temporal Cloud Namespace came from. Adopted means
-	// the operator adopted a Namespace that already existed, so it is
-	// retained when the CR is deleted unless the deletion-policy annotation
-	// says delete. Empty otherwise.
-	// +optional
-	Source cloudcommon.ResourceSource `json:"source,omitempty"`
 }
 
 // NamespaceList is a list of Namespace resources

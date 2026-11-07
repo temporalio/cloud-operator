@@ -22,9 +22,9 @@ import (
 // found unchanged.
 //
 // The adopt policy takes two reconciles. The first copies Temporal Cloud's
-// settings into the CR's spec and requeues. The spec change triggers the
-// second, which links the Namespace once the specs match, so status.id is
-// never saved next to an empty spec and ResourceSync has nothing to update.
+// settings into the CR's spec, sets the adopted annotation and requeues. The
+// second links the Namespace once the specs match, so status.id is never saved
+// next to an empty spec and ResourceSync has nothing to update.
 func (r *Reconciler) adoptNamespace(
 	ctx context.Context,
 	latest types.Resource,
@@ -72,28 +72,65 @@ func (r *Reconciler) adoptNamespace(
 	}
 
 	spec := adoptedSpec(cr, found)
-	if !equality.Semantic.DeepEqual(cr.Spec, spec) {
+	if !equality.Semantic.DeepEqual(cr.Spec, spec) || !isAdopted(latest) {
 		// Patch a copy so latest is unchanged.
 		patched := cr.DeepCopy()
 		patched.Spec = spec
+		if patched.Annotations == nil {
+			patched.Annotations = map[string]string{}
+		}
+		patched.Annotations[tcloudcommon.AnnotationKeyAdopted] = "true"
 		err = r.KubeClient().Patch(
 			ctx, patched,
 			kclient.MergeFromWithOptions(cr, kclient.MergeFromWithOptimisticLock{}),
 		)
 		if err != nil {
 			return nil, fmt.Errorf(
-				"failed copying tcloud namespace %q settings to spec: %w",
+				"failed copying tcloud namespace %q settings to spec and marking it adopted: %w",
 				found.GetNamespace(), err,
 			)
 		}
+		// Annotation edits don't trigger a reconcile, so requeue.
 		return nil, requeue.NeededAfter(
-			fmt.Errorf("copied tcloud namespace %q settings to spec, waiting to link it", found.GetNamespace()),
+			fmt.Errorf(
+				"copied tcloud namespace %q settings to spec and marked it adopted, waiting to link it",
+				found.GetNamespace(),
+			),
 			requeue.DefaultRequeueAfterDuration,
 		)
 	}
 
-	cr.Status.Source = tcloudcommon.ResourceSourceAdopted
 	return found, nil
+}
+
+// isAdopted returns true if the subject has the cloud.temporal.io/adopted
+// annotation set to "true".
+func isAdopted(subject types.Resource) bool {
+	v, ok := annotation.Value(subject, tcloudcommon.AnnotationKeyAdopted)
+	return ok && strings.EqualFold(strings.TrimSpace(v), "true")
+}
+
+// clearAdopted removes the cloud.temporal.io/adopted annotation from the
+// stored CR, so a Namespace the operator creates for it later isn't treated
+// as adopted.
+func (r *Reconciler) clearAdopted(
+	ctx context.Context,
+	cr *tcloudv1alpha1.Namespace,
+) error {
+	patched := cr.DeepCopy()
+	for k := range patched.Annotations {
+		if strings.EqualFold(k, tcloudcommon.AnnotationKeyAdopted) {
+			delete(patched.Annotations, k)
+		}
+	}
+	err := r.KubeClient().Patch(
+		ctx, patched,
+		kclient.MergeFromWithOptions(cr, kclient.MergeFromWithOptimisticLock{}),
+	)
+	if err != nil {
+		return fmt.Errorf("failed removing %s annotation: %w", tcloudcommon.AnnotationKeyAdopted, err)
+	}
+	return nil
 }
 
 // adoptedSpec returns Temporal Cloud's settings for found as a CR spec. The

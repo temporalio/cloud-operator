@@ -71,8 +71,9 @@ type deleteCase struct {
 	// policy is the deletion-policy annotation value. Empty means no
 	// annotation.
 	policy string
-	source tcloudcommon.ResourceSource
-	status tcloudcommon.ResourceStatus
+	// adopted is the adopted annotation value. Empty means no annotation.
+	adopted string
+	status  tcloudcommon.ResourceStatus
 	// protected sets spec.lifecycle.enableDeleteProtection.
 	protected bool
 
@@ -141,9 +142,28 @@ func TestReconciler_ResourceDelete_DeletionPolicy(t *testing.T) {
 			status: statusActive,
 		},
 		{
-			name:   "adopted with no annotation is retained without cloud calls",
-			source: tcloudcommon.ResourceSourceAdopted,
-			status: statusActive,
+			name:    "adopted with no annotation is retained without cloud calls",
+			adopted: "true",
+			status:  statusActive,
+		},
+		{
+			name:            "adopted with explicit delete calls DeleteNamespace",
+			policy:          "delete",
+			adopted:         "true",
+			status:          statusActive,
+			deleteResp:      deleteAccepted,
+			expGetNamespace: true,
+			expDelete:       true,
+			expRequeue:      true,
+			expStatus:       &statusDeleting,
+		},
+		{
+			name:       "invalid adopted value sets stalled and requeues without cloud calls",
+			adopted:    "yes",
+			status:     statusActive,
+			expErr:     `invalid cloud.temporal.io/adopted annotation "yes"`,
+			expRequeue: true,
+			expStalled: `invalid cloud.temporal.io/adopted annotation "yes"`,
 		},
 		{
 			name:   "retain with surrounding whitespace makes no cloud calls",
@@ -366,7 +386,12 @@ func runDeleteCase(t *testing.T, tc deleteCase) {
 	require := require.New(t)
 
 	tns := newDeleteTestNamespace(tc.policy, tc.status, tc.protected)
-	tns.Status.Source = tc.source
+	if tc.adopted != "" {
+		if tns.Annotations == nil {
+			tns.Annotations = map[string]string{}
+		}
+		tns.Annotations[tcloudcommon.AnnotationKeyAdopted] = tc.adopted
+	}
 	cloud := startDeleteFakeCloud(t, tc)
 	r := newDeleteTestReconciler(cloud, tns)
 

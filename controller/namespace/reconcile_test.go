@@ -113,7 +113,9 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 	tnsSynced.Status.ResourceVersion = "rv-0"
 	// tnsAdopted is a synced namespace the operator adopted.
 	tnsAdopted := tnsSynced.DeepCopy()
-	tnsAdopted.Status.Source = cloudcommon.ResourceSourceAdopted
+	tnsAdopted.Annotations = map[string]string{
+		cloudcommon.AnnotationKeyAdopted: "true",
+	}
 
 	// cloudNS is the namespace as Temporal Cloud reports it. Its project
 	// differs from the CR's so we can see that latest is mutated to match
@@ -162,7 +164,6 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 	cleared := func(ns *tcloudv1alpha1.Namespace) {
 		ns.Spec = tcloudv1alpha1.NamespaceSpec{}
 		ns.Status.ResourceStatus = cloudcommon.ResourceStatus{}
-		ns.Status.Source = ""
 	}
 	// withAnnotation returns a copy of the supplied CR with only the
 	// supplied annotation.
@@ -237,19 +238,10 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 			latest: withLatest(tnsSynced, cleared),
 		},
 		{
-			// The adopted namespace was deleted outside of the operator.
-			// ResourceSync recreates it, so it's no longer the adopted one.
-			name: "source is cleared if get namespace is not found",
-			serverOpts: []fakeserver.NewOption{
-				fakeserver.OnGetNamespaceReturn(
-					nil, status.Error(codes.NotFound, "namespace not found"),
-				),
-			},
-			res:    namespace.NewResource(tnsAdopted),
-			latest: withLatest(tnsAdopted, cleared),
-		},
-		{
-			name: "source is kept if get namespace finds it",
+			// Removing the annotation when the namespace is not found is
+			// covered by
+			// TestReconciler_ResourceSetLatest_AdoptedDeletedOutsideOperator.
+			name: "adopted annotation is kept if get namespace finds it",
 			serverOpts: []fakeserver.NewOption{
 				fakeserver.OnGetNamespaceReturn(
 					&tcloudservicev1.GetNamespaceResponse{Namespace: cloudNS}, nil,
@@ -495,15 +487,92 @@ func TestReconciler_ResourceSetLatest_AdoptTwoPasses(t *testing.T) {
 		},
 	}, stored.Spec)
 	require.Empty(stored.Status.ID)
+	// The adopted annotation is stored before status.id, so the Namespace
+	// is never linked without the retain default.
+	require.Equal("true", stored.Annotations[cloudcommon.AnnotationKeyAdopted])
 
-	// Pass 2 links it and marks it adopted.
+	// Pass 2 links it.
 	desired = namespace.NewResource(stored)
 	latest = desired.DeepCopy()
 	require.NoError(r.ResourceSetLatest(ctx, latest))
 	got := latest.CR().(*tcloudv1alpha1.Namespace)
 	require.Equal("tmprl-ns.acct1", got.Status.ID)
-	require.Equal(cloudcommon.ResourceSourceAdopted, got.Status.Source)
+	require.Equal("true", got.Annotations[cloudcommon.AnnotationKeyAdopted])
 
 	// The specs match, so the sync makes no Temporal Cloud calls.
 	require.NoError(r.ResourceSync(ctx, desired, latest))
+}
+
+// TestReconciler_ResourceSetLatest_AdoptedDeletedOutsideOperator deletes an
+// adopted namespace outside the operator. The first pass removes the adopted
+// annotation without clearing latest, so the namespace ResourceSync recreates
+// is never saved as adopted. The second pass clears latest so it's recreated.
+func TestReconciler_ResourceSetLatest_AdoptedDeletedOutsideOperator(t *testing.T) {
+	require := require.New(t)
+	ctx := context.TODO()
+
+	cr := &tcloudv1alpha1.Namespace{}
+	cr.Name = "tmprl-ns"
+	cr.Namespace = kubeNamespace
+	cr.Annotations = map[string]string{
+		cloudcommon.AnnotationKeyAdoptionPolicy: "adopt",
+		cloudcommon.AnnotationKeyAdopted:        "true",
+	}
+	cr.Spec.Replicas = []tcloudv1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}}
+	cr.Spec.RetentionDays = 30
+	cr.Status.ID = "tmprl-ns.acct1"
+	cr.Status.State = cloudcommon.ResourceStateActive
+
+	srv, err := fakeserver.New(
+		fakeserver.OnGetNamespaceReturn(
+			nil, status.Error(codes.NotFound, "namespace not found"),
+		),
+	)
+	require.NoError(err)
+	t.Cleanup(srv.Start())
+	tcc, err := srv.Client()
+	require.NoError(err)
+
+	kc := kube.NewFakeClient(cr)
+	r := namespace.NewReconciler(
+		namespace.WithDefaultCloudClient(*tcc),
+		namespace.WithKubeClient(kc),
+	)
+	readCR := func() *tcloudv1alpha1.Namespace {
+		got := &tcloudv1alpha1.Namespace{}
+		require.NoError(kc.Get(ctx, client.ObjectKeyFromObject(cr), got))
+		return got
+	}
+
+	// Pass 1 removes the adopted annotation and requeues without changing
+	// latest, so the controller's status patch keeps status.id.
+	desired := namespace.NewResource(readCR())
+	latest := desired.DeepCopy()
+	err = r.ResourceSetLatest(ctx, latest)
+	var requeueAfter *requeue.RequeueNeededAfter
+	require.True(errors.As(err, &requeueAfter), "expected requeue error, got %v", err)
+	require.True(
+		kttestutilcompare.EqualIgnoringFields(
+			desired, latest,
+			kttestutilkube.ResourceIgnoredFields...,
+		),
+		kttestutilcompare.DiffIgnoringFields(
+			desired, latest,
+			kttestutilkube.ResourceIgnoredFields...,
+		),
+	)
+	stored := readCR()
+	require.Equal(map[string]string{
+		cloudcommon.AnnotationKeyAdoptionPolicy: "adopt",
+	}, stored.Annotations)
+	require.Equal("tmprl-ns.acct1", stored.Status.ID)
+
+	// Pass 2 clears latest, so ResourceSync recreates the namespace.
+	desired = namespace.NewResource(stored)
+	latest = desired.DeepCopy()
+	require.NoError(r.ResourceSetLatest(ctx, latest))
+	got := latest.CR().(*tcloudv1alpha1.Namespace)
+	require.Empty(got.Status.ID)
+	require.Equal(tcloudv1alpha1.NamespaceSpec{}, got.Spec)
+	require.NotContains(got.Annotations, cloudcommon.AnnotationKeyAdopted)
 }

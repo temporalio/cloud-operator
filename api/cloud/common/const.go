@@ -21,6 +21,12 @@ const (
 	// AdoptionPolicy.
 	AnnotationKeyAdoptionPolicy = AnnotationKeyPrefixTemporalCloud + "adoption-policy"
 
+	// AnnotationKeyAdopted marks a custom resource whose Temporal Cloud
+	// resource the controller adopted rather than created. Without a
+	// deletion-policy annotation, an adopted resource is retained when its
+	// custom resource is deleted.
+	AnnotationKeyAdopted = AnnotationKeyPrefixTemporalCloud + "adopted"
+
 	// ReasonResourceDeleteFailed is the Stalled condition reason when Temporal
 	// Cloud failed to delete the backend resource.
 	ReasonResourceDeleteFailed = "ResourceDeleteFailed"
@@ -34,11 +40,6 @@ type DeletionPolicy string
 // Cloud resource.
 type AdoptionPolicy string
 
-// ResourceSource describes where the Temporal Cloud resource managed by a CR
-// came from.
-// +kubebuilder:validation:Enum=Adopted
-type ResourceSource string
-
 const (
 	// DeletionPolicyDelete deletes the Temporal Cloud resource, and removes
 	// the custom resource once Temporal Cloud has finished deleting it.
@@ -48,10 +49,6 @@ const (
 	DeletionPolicyRetain DeletionPolicy = "retain"
 	// AdoptionPolicyAdopt imports an existing Temporal Cloud resource as is.
 	AdoptionPolicyAdopt AdoptionPolicy = "adopt"
-
-	// ResourceSourceAdopted means the controller adopted a Temporal Cloud
-	// resource that already existed.
-	ResourceSourceAdopted ResourceSource = "Adopted"
 )
 
 // validDeletionPolicies are the valid DeletionPolicy values.

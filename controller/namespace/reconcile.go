@@ -9,6 +9,7 @@ import (
 	ctrlerrors "github.com/temporalio/kube-temporal/pkg/controller/errors"
 	ctrlreqlog "github.com/temporalio/kube-temporal/pkg/controller/request/log"
 	"github.com/temporalio/kube-temporal/pkg/controller/requeue"
+	"github.com/temporalio/kube-temporal/pkg/kube/annotation"
 	"github.com/temporalio/kube-temporal/pkg/types"
 	tcloudservicev1 "go.temporal.io/cloud-sdk/api/cloudservice/v1"
 	tcloudnamespacev1 "go.temporal.io/cloud-sdk/api/namespace/v1"
@@ -150,11 +151,27 @@ func (r *Reconciler) ResourceSetLatest(
 	}
 
 	if tns == nil {
+		// ResourceSync will create a new namespace, which the operator
+		// didn't adopt. Remove the adopted annotation first, so the new
+		// namespace is never saved as linked while still marked adopted.
+		if annotation.HasKey(latest, cloudcommon.AnnotationKeyAdopted) {
+			err = r.clearAdopted(ctx, cr)
+			if err != nil {
+				return err
+			}
+			return requeue.NeededAfter(
+				fmt.Errorf(
+					"tcloud namespace for %q not found, removed %s annotation before recreating it",
+					cr.Name, cloudcommon.AnnotationKeyAdopted,
+				),
+				requeue.DefaultRequeueAfterDuration,
+			)
+		}
+
 		// The namespace does not exist in Temporal Cloud, so mutate latest
 		// spec and status to be empty.
 		cr.Spec = tcloudv1alpha1.NamespaceSpec{}
 		cr.Status.ResourceStatus = cloudcommon.ResourceStatus{}
-		cr.Status.Source = ""
 		return nil
 	}
 
