@@ -430,12 +430,12 @@ func TestSubMessageConverters_Nil(t *testing.T) {
 
 	require.Nil(v1alpha1.ReplicasFromProto(nil))
 	require.Nil(v1alpha1.ReplicasFromProto([]*tcloudnamespacev1.ReplicaSpec{}))
-	require.Nil(v1alpha1.LifecycleFromProto(nil))
+	require.Nil(v1alpha1.NamespaceLifecycleFromProto(nil))
 	require.Nil(v1alpha1.SearchAttributesFromProto(nil))
 
 	require.Nil(v1alpha1.ReplicasToProto(nil))
 	require.Nil(v1alpha1.ReplicasToProto([]v1alpha1.ReplicaSpec{}))
-	require.Nil(v1alpha1.LifecycleToProto(nil))
+	require.Nil(v1alpha1.NamespaceLifecycleToProto(nil))
 	require.Nil(v1alpha1.SearchAttributesToProto(nil))
 
 	// ToProto methods are called on optional fields, so they must accept a nil

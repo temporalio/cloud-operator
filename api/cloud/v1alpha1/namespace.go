@@ -179,7 +179,7 @@ func (s NamespaceSpec) FromProto(in *tcloudnamespacev1.NamespaceSpec) NamespaceS
 		Replicas:            ReplicasFromProto(in.GetReplicas()),
 		RetentionDays:       in.GetRetentionDays(),
 		SearchAttributes:    SearchAttributesFromProto(in.GetSearchAttributes()),
-		Lifecycle:           LifecycleFromProto(in.GetLifecycle()),
+		Lifecycle:           NamespaceLifecycleFromProto(in.GetLifecycle()),
 		ConnectivityRuleIDs: slices.Clone(in.GetConnectivityRuleIds()),
 	}
 
@@ -219,7 +219,7 @@ func (s NamespaceSpec) toProto() *tcloudnamespacev1.NamespaceSpec {
 		ApiKeyAuth:           s.APIKeyAuth.ToProto(),
 		SearchAttributes:     SearchAttributesToProto(s.SearchAttributes),
 		CodecServer:          s.CodecServer.ToProto(),
-		Lifecycle:            LifecycleToProto(s.Lifecycle),
+		Lifecycle:            NamespaceLifecycleToProto(s.Lifecycle),
 		HighAvailability:     s.HighAvailability.ToProto(),
 		ConnectivityRuleIds:  slices.Clone(s.ConnectivityRuleIDs),
 		CapacitySpec:         s.Capacity.ToProto(),
@@ -658,7 +658,7 @@ func (e *CodecServerErrorMessage) ToProto() *tcloudnamespacev1.CodecServerSpec_C
 	}
 }
 
-// LifecycleFromProto converts the supplied Temporal Cloud namespace
+// NamespaceLifecycleFromProto converts the supplied Temporal Cloud namespace
 // LifecycleSpec to its CR form, returning nil when it is unset.
 //
 // It is a function rather than a FromProto method because
@@ -666,7 +666,7 @@ func (e *CodecServerErrorMessage) ToProto() *tcloudnamespacev1.CodecServerSpec_C
 // package. Temporal Cloud has a separate LifecycleSpec proto per resource
 // (namespace, project), and a method could only accept one of them, which
 // would tie the shared type to namespaces.
-func LifecycleFromProto(
+func NamespaceLifecycleFromProto(
 	in *tcloudnamespacev1.LifecycleSpec,
 ) *cloudcommon.LifecycleSpec {
 	if in == nil {
@@ -677,15 +677,15 @@ func LifecycleFromProto(
 	}
 }
 
-// LifecycleToProto converts the supplied lifecycle settings to a Temporal
-// Cloud namespace LifecycleSpec, returning nil when in is nil.
+// NamespaceLifecycleToProto converts the supplied lifecycle settings to a
+// Temporal Cloud namespace LifecycleSpec, returning nil when in is nil.
 //
 // It is a function rather than a ToProto method because
 // [cloudcommon.LifecycleSpec] is shared across resources and lives in another
 // package. Temporal Cloud has a separate LifecycleSpec proto per resource
 // (namespace, project), and a method could only return one of them, which
 // would tie the shared type to namespaces.
-func LifecycleToProto(
+func NamespaceLifecycleToProto(
 	in *cloudcommon.LifecycleSpec,
 ) *tcloudnamespacev1.LifecycleSpec {
 	if in == nil {
