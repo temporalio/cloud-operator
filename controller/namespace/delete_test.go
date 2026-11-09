@@ -140,9 +140,11 @@ func TestReconciler_ResourceDelete_DeletionPolicy(t *testing.T) {
 			status: statusActive,
 		},
 		{
-			name:   "retain with surrounding whitespace makes no cloud calls",
-			policy: " retain ",
-			status: statusActive,
+			name:       "retain with surrounding whitespace yields error",
+			policy:     " retain ",
+			status:     statusActive,
+			expRequeue: true,
+			expStalled: "invalid deletion policy \" retain \". allowed values: retain, delete. Set the cloud.temporal.io/deletion-policy annotation to \"retain\" or \"delete\"",
 		},
 		{
 			name:       "invalid policy sets stalled and requeues without cloud calls",

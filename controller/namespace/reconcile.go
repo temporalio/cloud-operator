@@ -8,7 +8,7 @@ import (
 	ctrlerrors "github.com/temporalio/kube-temporal/pkg/controller/errors"
 	ctrlreqlog "github.com/temporalio/kube-temporal/pkg/controller/request/log"
 	"github.com/temporalio/kube-temporal/pkg/controller/requeue"
-	"github.com/temporalio/kube-temporal/pkg/types"
+	kttypes "github.com/temporalio/kube-temporal/pkg/types"
 	tcloudservicev1 "go.temporal.io/cloud-sdk/api/cloudservice/v1"
 	tcloudnamespacev1 "go.temporal.io/cloud-sdk/api/namespace/v1"
 	tcclient "go.temporal.io/cloud-sdk/cloudclient"
@@ -21,6 +21,7 @@ import (
 	cloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 	"github.com/temporalio/cloud-operator/pkg/reconciler/base"
+	"github.com/temporalio/cloud-operator/pkg/types"
 )
 
 // NewrOption modifies the Reconciler returned from NewReconciler.
@@ -80,42 +81,48 @@ func (r *Reconciler) AdaptBuilder(builder *ctrlrt.Builder) *ctrlrt.Builder {
 func (r *Reconciler) ResourceFromRequest(
 	ctx context.Context,
 	req ctrlrt.Request,
-) (types.Resource, error) {
+) (kttypes.Resource, error) {
 	cr := &tcloudv1alpha1.Namespace{}
 	err := r.KubeReadLatestInto(ctx, req.NamespacedName, cr)
 	if err != nil {
 		return nil, fmt.Errorf("failed reading latest resource: %w", err)
 	}
-	return &res{cr}, nil
+	return NewResource(cr), nil
 }
 
-// ResourceSetLatest mutates the supplied [types.Resource] with the latest
-// observed state.
+// ResourceLatest returns a copy of the supplied [Resource] with the latest
+// observed state of the externally-managed resource.
 //
-// Any error returned from this function is considered a runtime error and will
-// cause the resource to contain a Stalled Condition with Status=True.
-func (r *Reconciler) ResourceSetLatest(
+// `current` is NEVER mutated.
+//
+// Any error returned from this function is considered a terminal error and
+// will cause the resource to contain a Stalled Condition with Status=True.
+func (r *Reconciler) ResourceLatest(
 	ctx context.Context,
-	latest types.Resource, // mutated by this method
-) error {
+	current kttypes.Resource, // mutated by this method
+) (kttypes.Resource, error) {
 	var err error
 	log := ctrlreqlog.FromContext(ctx)
-	exit := log.Trace("resource.set.latest")
+	exit := log.Trace("resource.latest")
 	defer func() {
 		exit(err)
 	}()
 
-	tcc, err := r.CloudClientFor(ctx, latest)
+	// Make a copy of the current resource. We will modify and return this
+	// copy, ensuring that the current parameter is never mutated.
+	latest := current.DeepCopy().(types.Resource)
+
+	tcc, err := r.CloudClientFor(ctx, current)
 	if err != nil {
-		return fmt.Errorf("failed getting tcloud client: %w", err)
+		return latest, fmt.Errorf("failed getting tcloud client: %w", err)
 	}
 
 	// "pop" the underlying *tcloudv1alpha1.Namespace from the [types.Resource]
-	// wrapper. This is a pointer so by modifying it, you mutate the supplied
-	// `latest` parameter.
-	cr := latest.(*res).cr
-
-	resourceID := cr.Status.Resource.ID
+	// wrapper. This is a pointer so by modifying it, you mutate latest which
+	// is what is returned from this function.
+	cr := latest.CR()
+	ns := cr.(*tcloudv1alpha1.Namespace)
+	resourceID := latest.ResourceID()
 
 	var tns *tcloudnamespacev1.Namespace
 	if resourceID == "" {
@@ -123,9 +130,9 @@ func (r *Reconciler) ResourceSetLatest(
 		// the create has saved it to status, and status can be lost (e.g. the
 		// CR was recreated). Look the namespace up by name so that a duplicate
 		// is never created.
-		tns, err = findNamespaceByName(ctx, tcc, cr.Name)
+		tns, err = findNamespaceByName(ctx, tcc, ns.Name)
 		if err != nil {
-			return fmt.Errorf("failed listing tcloud namespaces: %w", err)
+			return latest, fmt.Errorf("failed listing tcloud namespaces: %w", err)
 		}
 	} else {
 		var resp *tcloudservicev1.GetNamespaceResponse
@@ -138,7 +145,7 @@ func (r *Reconciler) ResourceSetLatest(
 			// recreates it.
 			err = nil
 		} else if err != nil {
-			return fmt.Errorf("failed getting tcloud namespace: %w", err)
+			return latest, fmt.Errorf("failed getting tcloud namespace: %w", err)
 		}
 		tns = resp.GetNamespace()
 	}
@@ -146,50 +153,47 @@ func (r *Reconciler) ResourceSetLatest(
 	if tns == nil {
 		// The namespace does not exist in Temporal Cloud, so mutate latest
 		// spec and status to be empty.
-		cr.Spec = tcloudv1alpha1.NamespaceSpec{}
-		cr.Status = tcloudv1alpha1.NamespaceStatus{}
-		return nil
+		ns.Spec = tcloudv1alpha1.NamespaceSpec{}
+		ns.Status = tcloudv1alpha1.NamespaceStatus{}
+		return latest, nil
 	}
 
 	// Construct a new Namespace from the proto we got back for the Cloud
 	// resource and mutate the latest types.Resource by dereferencing the cr
 	// variable to the value of the Namespace returned from FromProto()
-	fromCloud := cr.FromProto(tns)
-	*cr = *fromCloud
+	fromCloud := ns.FromProto(tns)
+	*ns = *fromCloud
 
-	return err
+	return latest, nil
 }
 
-// ResourceSyncFunc synchronizes any managed resources to match the supplied
-// desired [types.Resource] state.
+// ResourceSync synchronizes any managed resources to match the supplied
+// desired [Resource] state.
 //
-// Returns nil when the synchronization was successful, otherwise returns an
-// error derived from `kube-tempoal/pkg/controller/errors.ErrResourceSync`.
+// Returns a copy of latest updated with any annotations or status fields that
+// ResourceSync may have changed.
 //
-// `desired` should NEVER be mutated by this callback.
-// `latest` should NEVER be mutated by this callback.
+// IMPORTANT: When an error is returned, the returned Resource copy may have
+// been updated to include a condition that the user may inspect to determine
+// how to proceed with fixing a broken Resource. The caller should always save
+// the metadata and status of the returned Resource back to the Kubernetes API
+// server regardless of whether an error was returned.
 //
-// This method is only called when there was a difference detected between
-// the desired and latest [types.Resource].
+// `desired` is NEVER mutated.
+// `latest` is NEVER mutated.
+//
+// This method is only called when there was a difference detected between the
+// desired and latest [Resource].
 func (r *Reconciler) ResourceSync(
 	ctx context.Context,
-	desired types.Resource,
-	latest types.Resource,
-) error {
-	var err error
-	log := ctrlreqlog.FromContext(ctx)
-	exit := log.Trace("resource.sync")
-	defer func() {
-		exit(err)
-	}()
-
-	tcc, err := r.CloudClientFor(ctx, desired)
-	if err != nil {
-		return fmt.Errorf("failed getting tcloud client: %w", err)
-	}
-
-	err = syncNamespace(ctx, tcc, desired.(*res).cr, latest.(*res).cr)
-	return err
+	desired kttypes.Resource,
+	latest kttypes.Resource,
+) (kttypes.Resource, error) {
+	return r.syncNamespace(
+		ctx,
+		desired.(types.Resource),
+		latest.(types.Resource),
+	)
 }
 
 // syncNamespace makes at most one Temporal Cloud call to move the namespace
@@ -197,38 +201,72 @@ func (r *Reconciler) ResourceSync(
 // async operation, and a namespace with an operation in flight rejects new
 // ones, so after each call we requeue and let the next reconcile observe the
 // result and take the next step.
-func syncNamespace(
+func (r *Reconciler) syncNamespace(
 	ctx context.Context,
-	tcc tcloudservicev1.CloudServiceClient,
-	desired *tcloudv1alpha1.Namespace,
-	latest *tcloudv1alpha1.Namespace,
-) error {
-	resourceID := latest.Status.Resource.ID
+	desired types.Resource,
+	latest types.Resource,
+) (kttypes.Resource, error) {
+	var err error
+	log := ctrlreqlog.FromContext(ctx)
+	exit := log.Trace("resource.sync")
+	defer func() {
+		exit(err)
+	}()
+
+	// Make a copy of the latest resource. We may modify and return this copy,
+	// ensuring that neither the desired nor latest parameter is ever mutated.
+	updated := latest.DeepCopy()
+
+	tcc, err := r.CloudClientFor(ctx, desired)
+	if err != nil {
+		return updated, fmt.Errorf("failed getting tcloud client: %w", err)
+	}
+
+	resourceID := latest.ResourceID()
 
 	if resourceID == "" {
-		tns := desired.ToProto()
+		cr := desired.CR()
+		ns := cr.(*tcloudv1alpha1.Namespace)
+		tns := ns.ToProto()
 		resp, err := tcc.CreateNamespace(ctx, &tcloudservicev1.CreateNamespaceRequest{
 			Spec:      tns.GetSpec(),
 			Tags:      tns.GetTags(),
 			ProjectId: tns.GetProjectId(),
 		})
 		if err != nil {
-			return cloudCallError("creating tcloud namespace", err)
+			return updated, cloudCallError("creating tcloud namespace", err)
 		}
-		return requeue.NeededAfter(
+		return updated, requeue.NeededAfter(
 			fmt.Errorf("created tcloud namespace %q, waiting for activation", resp.GetNamespace()),
 			requeue.DefaultRequeueAfterDuration,
+		)
+	}
+
+	desiredNS := desired.CR().(*tcloudv1alpha1.Namespace)
+	latestNS := latest.CR().(*tcloudv1alpha1.Namespace)
+
+	// spec.project is immutable on the CR, so a mismatch means the namespace
+	// was moved outside of the operator. An empty spec.project means the
+	// account's default project, whose ID Temporal Cloud reports back.
+	if desiredNS.Spec.Project.ID != "" && desiredNS.Spec.Project != latestNS.Spec.Project {
+		return updated, ctrlerrors.NewTerminalError(
+			fmt.Errorf(
+				"%w: tcloud namespace %q is in project %q "+
+					"but spec.project.id is %q",
+				ctrlerrors.ErrResourceSync, resourceID,
+				latestNS.Spec.Project.ID, desiredNS.Spec.Project.ID,
+			),
 		)
 	}
 
 	// Only an Active namespace accepts new operations. Every other state
 	// either resolves on its own, so we wait, or needs someone to step in, so
 	// we stop. Unknown states also wait rather than fall through to an update.
-	resourceState := latest.Status.Resource.State
+	resourceState := latest.ResourceState()
 	switch resourceState {
 	case cloudcommon.ResourceStateActive:
 	case cloudcommon.ResourceStateActivating, cloudcommon.ResourceStateUpdating:
-		return requeue.NeededAfter(
+		return updated, requeue.NeededAfter(
 			fmt.Errorf(
 				"waiting for tcloud namespace %q to leave state %s",
 				resourceID, resourceState,
@@ -239,7 +277,7 @@ func syncNamespace(
 		// The namespace was deleted outside of the operator. Once Temporal
 		// Cloud reports it as not found, ResourceSetLatest clears the status
 		// and the next sync recreates it.
-		return requeue.NeededAfter(
+		return updated, requeue.NeededAfter(
 			fmt.Errorf(
 				"waiting for tcloud namespace %q to finish deleting, state %s",
 				resourceID, resourceState,
@@ -251,7 +289,7 @@ func syncNamespace(
 		cloudcommon.ResourceStateDeleteFailed,
 		cloudcommon.ResourceStateSuspended,
 		cloudcommon.ResourceStateExpired:
-		return ctrlerrors.NewTerminalError(
+		return updated, ctrlerrors.NewTerminalError(
 			fmt.Errorf(
 				"%w: tcloud namespace %q is in state %s, "+
 					"contact Temporal Cloud support",
@@ -259,7 +297,7 @@ func syncNamespace(
 			),
 		)
 	default:
-		return requeue.NeededAfter(
+		return updated, requeue.NeededAfter(
 			fmt.Errorf(
 				"waiting for tcloud namespace %q to leave unknown state %q",
 				resourceID, resourceState,
@@ -268,43 +306,29 @@ func syncNamespace(
 		)
 	}
 
-	// spec.project is immutable on the CR, so a mismatch means the namespace
-	// was moved outside of the operator. An empty spec.project means the
-	// account's default project, whose ID Temporal Cloud reports back.
-	if desired.Spec.Project.ID != "" && desired.Spec.Project != latest.Spec.Project {
-		return ctrlerrors.NewTerminalError(
-			fmt.Errorf(
-				"%w: tcloud namespace %q is in project %q "+
-					"but spec.project.id is %q",
-				ctrlerrors.ErrResourceSync, resourceID,
-				latest.Spec.Project.ID, desired.Spec.Project.ID,
-			),
-		)
-	}
-
 	// The controller's DeepEqual always reports a difference
 	// once Status.Conditions is populated, so compare the fields each API
 	// owns here to avoid sending no-op updates on every reconcile. Project
 	// and tags are not part of UpdateNamespace.
 	if !equality.Semantic.DeepEqual(
-		specWithoutProjectAndTags(&desired.Spec),
-		specWithoutProjectAndTags(&latest.Spec),
+		specWithoutProjectAndTags(&desiredNS.Spec),
+		specWithoutProjectAndTags(&latestNS.Spec),
 	) {
 		_, err := tcc.UpdateNamespace(ctx, &tcloudservicev1.UpdateNamespaceRequest{
 			Namespace:       resourceID,
-			Spec:            desired.ToProto().GetSpec(),
-			ResourceVersion: latest.Status.Resource.Version,
+			Spec:            desiredNS.ToProto().GetSpec(),
+			ResourceVersion: latestNS.Status.Resource.Version,
 		})
 		if err != nil {
-			return cloudCallError("updating tcloud namespace", err)
+			return updated, cloudCallError("updating tcloud namespace", err)
 		}
-		return requeue.NeededAfter(
+		return updated, requeue.NeededAfter(
 			fmt.Errorf("updated tcloud namespace %q, waiting for update to complete", resourceID),
 			requeue.DefaultRequeueAfterDuration,
 		)
 	}
 
-	upsert, remove := tagsDiff(desired.Spec.Tags, latest.Spec.Tags)
+	upsert, remove := tagsDiff(desiredNS.Spec.Tags, latestNS.Spec.Tags)
 	if len(upsert) > 0 || len(remove) > 0 {
 		_, err := tcc.UpdateNamespaceTags(ctx, &tcloudservicev1.UpdateNamespaceTagsRequest{
 			Namespace:    resourceID,
@@ -312,9 +336,9 @@ func syncNamespace(
 			TagsToRemove: remove,
 		})
 		if err != nil {
-			return cloudCallError("updating tcloud namespace tags", err)
+			return updated, cloudCallError("updating tcloud namespace tags", err)
 		}
-		return requeue.NeededAfter(
+		return updated, requeue.NeededAfter(
 			fmt.Errorf(
 				"updated tcloud namespace %q tags, "+
 					"waiting for update to complete",
@@ -324,7 +348,7 @@ func syncNamespace(
 		)
 	}
 
-	return nil
+	return updated, nil
 }
 
 // specWithoutProjectAndTags returns a copy of the supplied spec with the
@@ -432,4 +456,4 @@ func tagsDiff(
 
 // compile-time check that Reconciler satisfies the [types.Reconciler]
 // contract.
-var _ types.Reconciler = (*Reconciler)(nil)
+var _ kttypes.Reconciler = (*Reconciler)(nil)
