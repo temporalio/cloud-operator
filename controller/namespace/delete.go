@@ -4,14 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
-	"strings"
 
 	ctrlreqlog "github.com/temporalio/kube-temporal/pkg/controller/request/log"
 	"github.com/temporalio/kube-temporal/pkg/controller/requeue"
-	"github.com/temporalio/kube-temporal/pkg/kube/annotation"
 	"github.com/temporalio/kube-temporal/pkg/kube/condition"
-	"github.com/temporalio/kube-temporal/pkg/types"
+	kttypes "github.com/temporalio/kube-temporal/pkg/types"
 	tcloudservicev1 "go.temporal.io/cloud-sdk/api/cloudservice/v1"
 	tcloudnamespacev1 "go.temporal.io/cloud-sdk/api/namespace/v1"
 	operationv1 "go.temporal.io/cloud-sdk/api/operation/v1"
@@ -22,6 +19,7 @@ import (
 
 	tcloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
+	"github.com/temporalio/cloud-operator/pkg/types"
 	ctrlerrors "github.com/temporalio/kube-temporal/pkg/controller/errors"
 )
 
@@ -35,8 +33,19 @@ import (
 // `original` is never mutated.
 func (r *Reconciler) ResourceDelete(
 	ctx context.Context,
+	original kttypes.Resource,
+) (kttypes.Resource, error) {
+	return r.deleteNamespace(
+		ctx,
+		original.(types.Resource),
+	)
+}
+
+// deleteNamespace attempts to delete the supplied resource.
+func (r *Reconciler) deleteNamespace(
+	ctx context.Context,
 	original types.Resource,
-) (types.Resource, error) {
+) (kttypes.Resource, error) {
 	var err error
 	log := ctrlreqlog.FromContext(ctx)
 	exit := log.Trace("resource.delete")
@@ -44,55 +53,70 @@ func (r *Reconciler) ResourceDelete(
 		exit(err)
 	}()
 
-	latest := original.DeepCopy()
-	cr := latest.CR().(*tcloudv1alpha1.Namespace)
+	// Make a copy of the original resource. We may modify and return this
+	// copy, and want to make sure we never mutate original.
+	updated := original.DeepCopy()
+	resourceID := original.ResourceID()
 
-	resourceID := cr.Status.Resource.ID
 	if resourceID == "" {
 		// The user deleted the CR before the operator created a Namespace in
 		// Temporal Cloud, so there's nothing to delete.
-		return latest, nil
+		return updated, nil
 	}
 
-	policy, err := deletionPolicy(latest)
+	dp := original.DeletionPolicy()
+
+	err = dp.Validate()
 	if err != nil {
 		// Never fall back to delete on an invalid value. Annotation edits
 		// don't trigger a reconcile, so requeue to pick up a corrected value.
 		msg := fmt.Sprintf(
 			"%s. Set the %s annotation to %q or %q",
-			err, tcloudcommon.AnnotationKeyDeletionPolicy,
-			tcloudcommon.DeletionPolicyRetain, tcloudcommon.DeletionPolicyDelete,
+			err,
+			tcloudcommon.AnnotationKeyDeletionPolicy,
+			tcloudcommon.DeletionPolicyRetain,
+			tcloudcommon.DeletionPolicyDelete,
 		)
 		condition.SetStalled(
-			latest, metav1.ConditionTrue, msg, tcloudcommon.ReasonResourceDeleteFailed,
+			updated,
+			metav1.ConditionTrue,
+			msg,
+			tcloudcommon.ReasonResourceDeleteFailed,
 		)
-		err = requeue.NeededAfter(errors.New(msg), requeue.DefaultRequeueAfterDuration)
-		return latest, err
-	}
-	if policy == tcloudcommon.DeletionPolicyRetain {
-		log.Info(
-			"retaining Temporal Cloud Namespace because of the retain deletion policy",
-			slog.String("namespace_id", resourceID),
-			slog.String("deletion_policy", string(policy)),
+		err = requeue.NeededAfter(
+			errors.New(msg),
+			requeue.DefaultRequeueAfterDuration,
 		)
-		return latest, nil
+		return updated, err
 	}
 
-	tcc, err := r.CloudClientFor(ctx, latest)
+	if dp == tcloudcommon.DeletionPolicyRetain {
+		log.Info(
+			"retaining Temporal Cloud Namespace because of " +
+				"a retain deletion policy",
+		)
+		return updated, nil
+	}
+
+	tcc, err := r.CloudClientFor(ctx, original)
 	if err != nil {
 		err = fmt.Errorf("failed getting tcloud client: %w", err)
-		return latest, err
+		return updated, err
 	}
 
-	resourceState := cr.Status.Resource.State
-	asyncOpID := cr.Status.Resource.AsyncOperationID
+	resStatus := original.ResourceStatus()
+	resState := resStatus.State
+	asyncOpID := resStatus.AsyncOperationID
+
+	updatedNS := updated.CR().(*tcloudv1alpha1.Namespace)
+	originalNS := original.CR().(*tcloudv1alpha1.Namespace)
 
 	// We may have already called DeleteNamespace for this resource. If so,
 	// check whether the delete operation has finished.
 	switch {
-	case resourceState == tcloudcommon.ResourceStateDeleted:
-		return latest, nil
-	case resourceState == tcloudcommon.ResourceStateDeleteFailed:
+	case resState == tcloudcommon.ResourceStateDeleted:
+		return updated, nil
+	case resState == tcloudcommon.ResourceStateDeleteFailed:
 		// A previous delete failed. Don't send another one automatically.
 		err = ctrlerrors.NewTerminalError(
 			fmt.Errorf(
@@ -101,29 +125,61 @@ func (r *Reconciler) ResourceDelete(
 				resourceID, asyncOpID,
 			),
 		)
-		return latest, err
-	case resourceState == tcloudcommon.ResourceStateDeleting &&
+		return updated, err
+	case resState == tcloudcommon.ResourceStateDeleting &&
 		asyncOpID != "":
-		err = checkDelete(ctx, tcc, latest, cr)
-		return latest, err
-	case resourceState == tcloudcommon.ResourceStateActivating,
-		resourceState == tcloudcommon.ResourceStateUpdating:
+		op, err := getAsyncOperation(ctx, tcc, asyncOpID)
+		if err != nil {
+			return updated, err
+		}
+		opState := op.GetState()
+		switch opState {
+		case operationv1.AsyncOperation_STATE_FULFILLED:
+			return updated, nil
+		case operationv1.AsyncOperation_STATE_FAILED,
+			operationv1.AsyncOperation_STATE_REJECTED,
+			operationv1.AsyncOperation_STATE_CANCELLED:
+			msg := fmt.Sprintf(
+				"deleting tcloud namespace %s failed: "+
+					"async operation %s is %s: %s",
+				resourceID,
+				asyncOpID,
+				opState,
+				op.GetFailureReason(),
+			)
+			condition.SetStalled(
+				updated, metav1.ConditionTrue, msg, tcloudcommon.ReasonResourceDeleteFailed,
+			)
+			updatedNS.Status.Resource.State = tcloudcommon.ResourceStateDeleteFailed
+			return updated, ctrlerrors.NewTerminalError(errors.New(msg))
+		default:
+			// Pending, in progress, or a state this SDK doesn't know.
+			return updated, requeue.NeededAfter(
+				fmt.Errorf(
+					"waiting for tcloud async operation %s (%s)",
+					op.GetId(), op.GetState(),
+				),
+				requeue.DefaultRequeueAfterDuration,
+			)
+		}
+	case resState == tcloudcommon.ResourceStateActivating,
+		resState == tcloudcommon.ResourceStateUpdating:
 		// A create or update on this custom resource is still in flight, and Temporal Cloud rejects a
 		// delete until the Namespace is Active. Check again later.
 		err = requeue.NeededAfter(
 			fmt.Errorf(
 				"waiting for tcloud namespace %s to finish %s before deleting",
-				resourceID, resourceState,
+				resourceID, resState,
 			),
 			requeue.DefaultRequeueAfterDuration,
 		)
-		return latest, err
+		return updated, err
 	}
 
 	// Temporal Cloud rejects deleting a protected Namespace, so no need to send the
 	// delete request. Changing the spec triggers a reconcile, but switching the
 	// annotation to retain doesn't, so requeue to pick that up.
-	if cr.Spec.Lifecycle != nil && cr.Spec.Lifecycle.EnableDeleteProtection {
+	if originalNS.Spec.Lifecycle != nil && originalNS.Spec.Lifecycle.EnableDeleteProtection {
 		msg := fmt.Sprintf(
 			"tcloud namespace %s has deletion protection enabled; set "+
 				"spec.lifecycle.enableDeleteProtection to false to delete it, "+
@@ -132,10 +188,10 @@ func (r *Reconciler) ResourceDelete(
 			tcloudcommon.DeletionPolicyRetain,
 		)
 		condition.SetStalled(
-			latest, metav1.ConditionTrue, msg, tcloudcommon.ReasonResourceDeleteFailed,
+			updated, metav1.ConditionTrue, msg, tcloudcommon.ReasonResourceDeleteFailed,
 		)
 		err = requeue.NeededAfter(errors.New(msg), requeue.DefaultRequeueAfterDuration)
-		return latest, err
+		return updated, err
 	}
 
 	// Read the namespace so deletion protection in Temporal Cloud can be made
@@ -146,11 +202,11 @@ func (r *Reconciler) ResourceDelete(
 	if status.Code(err) == codes.NotFound {
 		// Already gone.
 		err = nil
-		return latest, nil
+		return updated, nil
 	}
 	if err != nil {
 		err = fmt.Errorf("failed getting tcloud namespace %s: %w", resourceID, err)
-		return latest, err
+		return updated, err
 	}
 	tns := getResp.GetNamespace()
 
@@ -158,7 +214,7 @@ func (r *Reconciler) ResourceDelete(
 		// The CR's spec says protection is off, so make
 		// Temporal Cloud match it before deleting.
 		err = disableDeleteProtection(ctx, tcc, tns)
-		return latest, err
+		return updated, err
 	}
 
 	resp, err := tcc.DeleteNamespace(ctx, &tcloudservicev1.DeleteNamespaceRequest{
@@ -168,7 +224,7 @@ func (r *Reconciler) ResourceDelete(
 	if status.Code(err) == codes.NotFound {
 		// Already gone.
 		err = nil
-		return latest, nil
+		return updated, nil
 	}
 	if err != nil {
 		// The gRPC error includes Temporal Cloud's message, for example that
@@ -178,13 +234,13 @@ func (r *Reconciler) ResourceDelete(
 			resourceID, err,
 		)
 		condition.SetStalled(
-			latest, metav1.ConditionTrue, err.Error(), tcloudcommon.ReasonResourceDeleteFailed,
+			updated, metav1.ConditionTrue, err.Error(), tcloudcommon.ReasonResourceDeleteFailed,
 		)
-		return latest, err
+		return updated, err
 	}
 
-	cr.Status.Resource.State = tcloudcommon.ResourceStateDeleting
-	cr.Status.Resource.AsyncOperationID = resp.GetAsyncOperation().GetId()
+	updatedNS.Status.Resource.State = tcloudcommon.ResourceStateDeleting
+	updatedNS.Status.Resource.AsyncOperationID = resp.GetAsyncOperation().GetId()
 	err = requeue.NeededAfter(
 		fmt.Errorf(
 			"deleting tcloud namespace %s (async operation %s)",
@@ -192,7 +248,7 @@ func (r *Reconciler) ResourceDelete(
 		),
 		requeue.DefaultRequeueAfterDuration,
 	)
-	return latest, err
+	return updated, err
 }
 
 // disableDeleteProtection turns off deletion protection on the
@@ -225,69 +281,23 @@ func disableDeleteProtection(
 	)
 }
 
-// checkDelete checks the async operation for a delete already sent to
-// Temporal Cloud. It returns nil once the operation is fulfilled, a requeue
-// error while it is running, and an error with the Stalled condition set on
-// latest if it failed.
-func checkDelete(
+// getAsyncOperation returns information about the async operationr identified
+// by the supplied opID.
+func getAsyncOperation(
 	ctx context.Context,
 	tcc tcloudservicev1.CloudServiceClient,
-	latest types.Resource,
-	cr *tcloudv1alpha1.Namespace,
-) error {
-	resourceID := cr.Status.Resource.ID
-	asyncOpID := cr.Status.Resource.AsyncOperationID
-
-	resp, err := tcc.GetAsyncOperation(ctx, &tcloudservicev1.GetAsyncOperationRequest{
-		AsyncOperationId: asyncOpID,
-	})
+	opID string,
+) (*operationv1.AsyncOperation, error) {
+	req := &tcloudservicev1.GetAsyncOperationRequest{
+		AsyncOperationId: opID,
+	}
+	resp, err := tcc.GetAsyncOperation(ctx, req)
 	if err != nil {
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"failed getting tcloud async operation %s: %w",
-			asyncOpID, err,
+			opID, err,
 		)
 	}
 	op := resp.GetAsyncOperation()
-	switch op.GetState() {
-	case operationv1.AsyncOperation_STATE_FULFILLED:
-		return nil
-	case operationv1.AsyncOperation_STATE_FAILED,
-		operationv1.AsyncOperation_STATE_REJECTED,
-		operationv1.AsyncOperation_STATE_CANCELLED:
-		msg := fmt.Sprintf(
-			"deleting tcloud namespace %s failed: async operation %s is %s: %s",
-			resourceID, op.GetId(), op.GetState(), op.GetFailureReason(),
-		)
-		condition.SetStalled(
-			latest, metav1.ConditionTrue, msg, tcloudcommon.ReasonResourceDeleteFailed,
-		)
-		cr.Status.Resource.State = tcloudcommon.ResourceStateDeleteFailed
-		return ctrlerrors.NewTerminalError(errors.New(msg))
-	default:
-		// Pending, in progress, or a state this SDK doesn't know.
-		return requeue.NeededAfter(
-			fmt.Errorf(
-				"waiting for tcloud async operation %s (%s)",
-				op.GetId(), op.GetState(),
-			),
-			requeue.DefaultRequeueAfterDuration,
-		)
-	}
-}
-
-// deletionPolicy returns the subject's deletion policy from its
-// cloud.temporal.io/deletion-policy annotation. An unset annotation means
-// delete. An invalid value is an error and never falls back to delete.
-//
-// TODO(Mechack): once adoption is supported, the default for an adopted
-// Namespace becomes retain. An explicit delete is honored either way.
-func deletionPolicy(subject types.Resource) (tcloudcommon.DeletionPolicy, error) {
-	v, ok := annotation.Value(subject, tcloudcommon.AnnotationKeyDeletionPolicy)
-	if !ok {
-		return tcloudcommon.DeletionPolicyDelete, nil
-	}
-
-	v = strings.ToLower(strings.TrimSpace(v))
-	p := tcloudcommon.DeletionPolicy(v)
-	return p, p.Validate()
+	return op, nil
 }
