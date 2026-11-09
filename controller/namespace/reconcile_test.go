@@ -90,7 +90,7 @@ func TestReconciler_ResourceFromRequest(t *testing.T) {
 	}
 }
 
-func TestReconciler_ResourceSetLatest(t *testing.T) {
+func TestReconciler_ResourceLatest(t *testing.T) {
 	tnsName := "tmprl-ns"
 	tnsID := tnsName + ".acct1"
 	project := "tmprl-project"
@@ -320,11 +320,7 @@ func TestReconciler_ResourceSetLatest(t *testing.T) {
 
 			ctx := context.TODO()
 
-			// We expect the types.Resource supplied to ResourceSetLatest to be
-			// mutated, so make a deep copy so we can track any changes made.
-			latest := tc.res.DeepCopy()
-
-			err = r.ResourceSetLatest(ctx, latest)
+			latest, err := r.ResourceLatest(ctx, tc.res)
 			if tc.expErr != "" {
 				require.ErrorContains(err, tc.expErr)
 				return

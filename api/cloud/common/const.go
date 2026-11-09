@@ -21,6 +21,12 @@ const (
 	// AdoptionPolicy.
 	AnnotationKeyAdoptionPolicy = AnnotationKeyPrefixTemporalCloud + "adoption-policy"
 
+	// AnnotationKeyAdoptedOn contains the timestamp that Temporal Cloud
+	// Operator took the existing resource under its management.
+	//
+	// Values should be proper RFC 3339 UTC timestamps.
+	AnnotationKeyAdoptedOn = AnnotationKeyPrefixTemporalCloud + "adopted-on"
+
 	// ReasonResourceDeleteFailed is the Stalled condition reason when Temporal
 	// Cloud failed to delete the backend resource.
 	ReasonResourceDeleteFailed = "ResourceDeleteFailed"
@@ -30,10 +36,6 @@ const (
 // deleting a Temporal Cloud resource associated with a CR.
 type DeletionPolicy string
 
-// AdoptionPolicy describes how the controller adopts an existing Temporal
-// Cloud resource.
-type AdoptionPolicy string
-
 const (
 	// DeletionPolicyDelete deletes the Temporal Cloud resource, and removes
 	// the custom resource once Temporal Cloud has finished deleting it.
@@ -41,23 +43,12 @@ const (
 	// DeletionPolicyRetain leaves the Temporal Cloud resource in place and
 	// only removes the custom resource.
 	DeletionPolicyRetain DeletionPolicy = "retain"
-	// AdoptionPolicyAdopt imports an existing Temporal Cloud resource as is.
-	AdoptionPolicyAdopt AdoptionPolicy = "adopt"
-	// AdoptionPolicyAdoptOrCreate adopts the Temporal Cloud resource if it
-	// exists, and creates it otherwise.
-	AdoptionPolicyAdoptOrCreate AdoptionPolicy = "adopt-or-create"
 )
 
 // validDeletionPolicies are the valid DeletionPolicy values.
 var validDeletionPolicies = []string{
 	string(DeletionPolicyRetain),
 	string(DeletionPolicyDelete),
-}
-
-// validAdoptionPolicies are the valid AdoptionPolicy values.
-var validAdoptionPolicies = []string{
-	string(AdoptionPolicyAdopt),
-	string(AdoptionPolicyAdoptOrCreate),
 }
 
 // Validate returns an error if the DeletionPolicy is not one of the valid
@@ -68,6 +59,24 @@ func (p DeletionPolicy) Validate() error {
 	}
 	allowed := strings.Join(validDeletionPolicies, ", ")
 	return fmt.Errorf("invalid deletion policy %q. allowed values: %s", p, allowed)
+}
+
+// AdoptionPolicy describes how the controller adopts an existing Temporal
+// Cloud resource.
+type AdoptionPolicy string
+
+const (
+	// AdoptionPolicyAdopt imports an existing Temporal Cloud resource as is.
+	AdoptionPolicyAdopt AdoptionPolicy = "adopt"
+	// AdoptionPolicyAdoptOrCreate adopts the Temporal Cloud resource if it
+	// exists, and creates it otherwise.
+	AdoptionPolicyAdoptOrCreate AdoptionPolicy = "adopt-or-create"
+)
+
+// validAdoptionPolicies are the valid AdoptionPolicy values.
+var validAdoptionPolicies = []string{
+	string(AdoptionPolicyAdopt),
+	string(AdoptionPolicyAdoptOrCreate),
 }
 
 func (p AdoptionPolicy) Validate() error {
@@ -81,6 +90,8 @@ func (p AdoptionPolicy) Validate() error {
 
 // ContainsFold returns true if the subject matches one of the
 // supplied valid values.
+//
+// TODO(jaypipes): Move this to kube-temporal/pkg/sliceutil
 func ContainsFold(subject string, validValues []string) bool {
 	return lo.ContainsBy(validValues, func(v string) bool {
 		return strings.EqualFold(subject, v)

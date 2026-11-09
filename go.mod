@@ -7,7 +7,7 @@ require (
 	github.com/samber/lo v1.53.0
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.12.1
-	github.com/temporalio/kube-temporal v0.7.0
+	github.com/temporalio/kube-temporal v0.8.0
 	go.temporal.io/cloud-sdk v0.21.0
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12

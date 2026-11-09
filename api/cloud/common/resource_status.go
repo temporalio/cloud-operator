@@ -1,6 +1,8 @@
 package common
 
 import (
+	"time"
+
 	tcloudresourcev1 "go.temporal.io/cloud-sdk/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -46,6 +48,77 @@ type ResourceStatus struct {
 	// Maps to Temporal Cloud proto `async_operation_id`.
 	// +optional
 	AsyncOperationID string `json:"asyncOperationID,omitempty"`
+}
+
+// FromMap returns a ResourceStatus populated from the supplied raw
+// map[string]any coming from a call to unstructured.NestedStringMap.
+func (s ResourceStatus) FromMap(raw map[string]any) ResourceStatus {
+	out := ResourceStatus{}
+
+	idAny, ok := raw["id"]
+	if ok {
+		id, ok := idAny.(string)
+		if !ok {
+			return out
+		}
+		out.ID = id
+	}
+
+	versionAny, ok := raw["version"]
+	if ok {
+		version, ok := versionAny.(string)
+		if !ok {
+			return out
+		}
+		out.Version = version
+	}
+
+	stateAny, ok := raw["state"]
+	if ok {
+		state, ok := stateAny.(string)
+		if !ok {
+			return out
+		}
+		out.State = ResourceState(state)
+	}
+
+	asyncOpIDAny, ok := raw["asyncOperationID"]
+	if ok {
+		asyncOpID, ok := asyncOpIDAny.(string)
+		if !ok {
+			return out
+		}
+		out.AsyncOperationID = asyncOpID
+	}
+
+	createdAny, ok := raw["createdTime"]
+	if ok {
+		createdStr, ok := createdAny.(string)
+		if !ok {
+			return out
+		}
+		ct, err := time.Parse(time.RFC3339, createdStr)
+		if err != nil {
+			return out
+		}
+		mct := metav1.NewTime(ct)
+		out.CreatedTime = &mct
+	}
+
+	modifiedAny, ok := raw["lastModifiedTime"]
+	if ok {
+		modifiedStr, ok := modifiedAny.(string)
+		if !ok {
+			mt, err := time.Parse(time.RFC3339, modifiedStr)
+			if err != nil {
+				return out
+			}
+			mmt := metav1.NewTime(mt)
+			out.LastModifiedTime = &mmt
+		}
+	}
+
+	return out
 }
 
 // ResourceState is the state of a resource in Temporal Cloud.
