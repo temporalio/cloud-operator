@@ -52,6 +52,8 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&ConnectionList{},
 		&Namespace{},
 		&NamespaceList{},
+		&Project{},
+		&ProjectList{},
 		&ServiceAccount{},
 		&ServiceAccountList{},
 	)
