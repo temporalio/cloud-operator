@@ -21,6 +21,10 @@ const (
 	// AdoptionPolicy.
 	AnnotationKeyAdoptionPolicy = AnnotationKeyPrefixTemporalCloud + "adoption-policy"
 
+	// AnnotationKeyResourceID is the ID of the existing Temporal Cloud
+	// resource to adopt.
+	AnnotationKeyResourceID = AnnotationKeyPrefixTemporalCloud + "resource-id"
+
 	// AnnotationKeyAdoptedOn contains the timestamp that Temporal Cloud
 	// Operator took the existing resource under its management.
 	//
@@ -68,15 +72,11 @@ type AdoptionPolicy string
 const (
 	// AdoptionPolicyAdopt imports an existing Temporal Cloud resource as is.
 	AdoptionPolicyAdopt AdoptionPolicy = "adopt"
-	// AdoptionPolicyAdoptOrCreate adopts the Temporal Cloud resource if it
-	// exists, and creates it otherwise.
-	AdoptionPolicyAdoptOrCreate AdoptionPolicy = "adopt-or-create"
 )
 
 // validAdoptionPolicies are the valid AdoptionPolicy values.
 var validAdoptionPolicies = []string{
 	string(AdoptionPolicyAdopt),
-	string(AdoptionPolicyAdoptOrCreate),
 }
 
 func (p AdoptionPolicy) Validate() error {

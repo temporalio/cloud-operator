@@ -40,11 +40,10 @@ func TestAdoptionPolicyValidate(t *testing.T) {
 		expErr bool
 	}{
 		{"adopt", false},
-		{"adopt-or-create", false},
+		{"adopt-or-create", true},
 		{"Adopt", false},
 		{"ADOPT", false},
-		{"Adopt-Or-Create", false},
-		{"aDoPt-oR-cReAtE", false},
+		{"Adopt-Or-Create", true},
 		{"", true},
 		{"create", true},
 		{"adopt_or_create", true},
@@ -58,7 +57,7 @@ func TestAdoptionPolicyValidate(t *testing.T) {
 				require.NoError(t, err)
 				return
 			}
-			require.EqualError(t, err, `invalid adoption policy "`+string(tc.in)+`". allowed values: adopt, adopt-or-create`)
+			require.EqualError(t, err, `invalid adoption policy "`+string(tc.in)+`". allowed values: adopt`)
 		})
 	}
 }

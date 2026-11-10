@@ -247,6 +247,24 @@ func TestReconciler_ResourceLatest(t *testing.T) {
 			res: namespace.NewResource(tns),
 		},
 		{
+			// The resource-id annotation alone doesn't make the CR linked,
+			// so it is still looked up by name.
+			name: "resource-id annotation without status lists by cr name",
+			listAsserter: func(tt *testing.T) fakeserver.GetNamespacesAssertFunc {
+				assert := assert.New(tt)
+				return func(req *tcloudservicev1.GetNamespacesRequest) {
+					assert.Equal(tnsName, req.GetName())
+				}
+			},
+			res: namespace.NewResource(func() *tcloudv1alpha1.Namespace {
+				out := tns.DeepCopy()
+				out.Annotations = map[string]string{
+					cloudcommon.AnnotationKeyResourceID: tnsID,
+				}
+				return out
+			}()),
+		},
+		{
 			name: "latest is mutated from namespace found by name",
 			serverOpts: []fakeserver.NewOption{
 				fakeserver.OnGetNamespacesReturn(
@@ -341,4 +359,36 @@ func TestReconciler_ResourceLatest(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReconciler_ResourceSync_CreatesWithResourceIDAnnotation(t *testing.T) {
+	require := require.New(t)
+
+	cr := &tcloudv1alpha1.Namespace{}
+	cr.Name = "tmprl-ns"
+	cr.Namespace = kubeNamespace
+	cr.Annotations = map[string]string{
+		cloudcommon.AnnotationKeyResourceID: "tmprl-ns.acct1",
+	}
+	cr.Spec.Replicas = []tcloudv1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}}
+	cr.Spec.RetentionDays = 30
+
+	srv, err := fakeserver.New()
+	require.NoError(err)
+	t.Cleanup(srv.Start())
+	tcc, err := srv.Client()
+	require.NoError(err)
+
+	r := namespace.NewReconciler(
+		namespace.WithDefaultCloudClient(*tcc),
+		namespace.WithKubeClient(kube.NewFakeClient(cr)),
+	)
+	desired := namespace.NewResource(cr)
+	latest := namespace.NewResource(&tcloudv1alpha1.Namespace{
+		ObjectMeta: cr.ObjectMeta,
+	})
+
+	_, err = r.ResourceSync(context.TODO(), desired, latest)
+	require.ErrorContains(err, "failed creating tcloud namespace")
+	require.ErrorContains(err, "Unimplemented")
 }

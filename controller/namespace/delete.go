@@ -58,7 +58,7 @@ func (r *Reconciler) deleteNamespace(
 	updated := original.DeepCopy()
 	resourceID := original.ResourceID()
 
-	if resourceID == "" {
+	if !original.PreviouslyReconciled() {
 		// The user deleted the CR before the operator created a Namespace in
 		// Temporal Cloud, so there's nothing to delete.
 		return updated, nil

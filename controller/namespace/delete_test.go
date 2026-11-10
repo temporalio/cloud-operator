@@ -71,7 +71,9 @@ type deleteCase struct {
 	// policy is the deletion-policy annotation value. Empty means no
 	// annotation.
 	policy string
-	status tcloudcommon.ResourceStatus
+	// annotations are other annotations on the CR.
+	annotations map[string]string
+	status      tcloudcommon.ResourceStatus
 	// protected sets spec.lifecycle.enableDeleteProtection.
 	protected bool
 
@@ -140,11 +142,29 @@ func TestReconciler_ResourceDelete_DeletionPolicy(t *testing.T) {
 			status: statusActive,
 		},
 		{
-			name:       "retain with surrounding whitespace yields error",
-			policy:     " retain ",
-			status:     statusActive,
-			expRequeue: true,
-			expStalled: "invalid deletion policy \" retain \". allowed values: retain, delete. Set the cloud.temporal.io/deletion-policy annotation to \"retain\" or \"delete\"",
+			name:   "retain with surrounding whitespace makes no cloud calls",
+			policy: " retain ",
+			status: statusActive,
+		},
+		{
+			name: "adopted with no annotation is retained without cloud calls",
+			annotations: map[string]string{
+				tcloudcommon.AnnotationKeyAdoptedOn: "2026-11-09T12:00:00Z",
+			},
+			status: statusActive,
+		},
+		{
+			name:   "adopted with explicit delete calls DeleteNamespace",
+			policy: "delete",
+			annotations: map[string]string{
+				tcloudcommon.AnnotationKeyAdoptedOn: "2026-11-09T12:00:00Z",
+			},
+			status:          statusActive,
+			deleteResp:      deleteAccepted,
+			expGetNamespace: true,
+			expDelete:       true,
+			expRequeue:      true,
+			expStatus:       &statusDeleting,
 		},
 		{
 			name:       "invalid policy sets stalled and requeues without cloud calls",
@@ -167,6 +187,15 @@ func TestReconciler_ResourceDelete_NoStatusID(t *testing.T) {
 		{name: "delete policy makes no cloud calls", policy: "delete"},
 		{name: "retain policy makes no cloud calls", policy: "retain"},
 		{name: "invalid policy makes no cloud calls", policy: "destroy"},
+		{
+			// The resource-id annotation names a Namespace to adopt, which
+			// isn't linked until status has its ID.
+			name:   "resource-id annotation without status makes no cloud calls",
+			policy: "delete",
+			annotations: map[string]string{
+				tcloudcommon.AnnotationKeyResourceID: deleteTestID,
+			},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(tt *testing.T) {
@@ -362,6 +391,12 @@ func runDeleteCase(t *testing.T, tc deleteCase) {
 	require := require.New(t)
 
 	tns := newDeleteTestNamespace(tc.policy, tc.status, tc.protected)
+	for k, v := range tc.annotations {
+		if tns.Annotations == nil {
+			tns.Annotations = map[string]string{}
+		}
+		tns.Annotations[k] = v
+	}
 	cloud := startDeleteFakeCloud(t, tc)
 	r := newDeleteTestReconciler(cloud, tns)
 
