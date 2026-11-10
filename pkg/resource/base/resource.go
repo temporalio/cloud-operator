@@ -22,10 +22,14 @@ type Resource struct {
 	defaultAdoptionPolicy tcloudcommon.AdoptionPolicy
 }
 
-// DeletionPolicy returns any deletion policy for the resource.
+// DeletionPolicy returns the deletion policy for the resource from its
+// deletion-policy annotation.
 func (r Resource) DeletionPolicy() tcloudcommon.DeletionPolicy {
 	dp, ok := annotation.Value(r, tcloudcommon.AnnotationKeyDeletionPolicy)
 	if !ok {
+		if r.IsAdopted() {
+			return tcloudcommon.DeletionPolicyRetain
+		}
 		return r.defaultDeletionPolicy
 	}
 	dp = strings.ToLower(dp)
@@ -39,11 +43,8 @@ func (r *Resource) SetDeletionPolicy(p tcloudcommon.DeletionPolicy) {
 
 // IsAdopted returns true if the resource was adopted by TCO.
 func (r Resource) IsAdopted() bool {
-	t, err := r.AdoptedOn()
-	if err != nil && t != nil {
-		return true
-	}
-	return false
+	_, found := annotation.Value(r, tcloudcommon.AnnotationKeyAdoptedOn)
+	return found
 }
 
 // AdoptedOn returns the time that TCO adopted the resource. Returns nil when
@@ -56,7 +57,7 @@ func (r Resource) AdoptedOn() (*time.Time, error) {
 	if !found {
 		return nil, nil
 	}
-	t, err := time.Parse(annoVal, time.RFC3339)
+	t, err := time.Parse(time.RFC3339, annoVal)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"failed parsing adopted-on timestamp %q: %w",
@@ -76,7 +77,7 @@ func (r *Resource) SetAdoptedOn(t time.Time) {
 // policy annotation was found on the resource, returns the default adoption
 // policy for that kind of resource.
 func (r Resource) AdoptionPolicy() tcloudcommon.AdoptionPolicy {
-	ap, found := annotation.Value(r, tcloudcommon.AnnotationKeyAdoptedOn)
+	ap, found := annotation.Value(r, tcloudcommon.AnnotationKeyAdoptionPolicy)
 	if !found {
 		return r.defaultAdoptionPolicy
 	}
@@ -89,11 +90,20 @@ func (r *Resource) SetAdoptionPolicy(p tcloudcommon.AdoptionPolicy) {
 	r.SetAnnotation(tcloudcommon.AnnotationKeyAdoptionPolicy, string(p))
 }
 
+// SetAnnotation initializes the annotations map if needed, then calls
+// kube-temporal's setter, which panics on a nil map.
+func (r *Resource) SetAnnotation(key, value string) {
+	if r.Annotations() == nil {
+		r.ReplaceAnnotations(annotation.Annotations{})
+	}
+	r.Resource.SetAnnotation(key, value)
+}
+
 // PreviouslyReconciled returns true if the Resource has previously been
 // successfully reconciled and had the Status.Resource.ID field set to a
 // non-empty value.
 func (r Resource) PreviouslyReconciled() bool {
-	return r.ResourceID() != ""
+	return r.statusResourceID() != ""
 }
 
 // ResourceID returns the Temporal Cloud resource identifier for the
@@ -101,6 +111,15 @@ func (r Resource) PreviouslyReconciled() bool {
 // Status.Resource.ID, otherwise returns the value of the
 // `cloud.temporal.io/resource-id` annotation, if any.
 func (r Resource) ResourceID() string {
+	if id := r.statusResourceID(); id != "" {
+		return id
+	}
+	id, _ := annotation.Value(r, tcloudcommon.AnnotationKeyResourceID)
+	return id
+}
+
+// statusResourceID returns the resource's Status.Resource.ID
+func (r Resource) statusResourceID() string {
 	// We ignore errors from Unstructured() because we know the Resource has
 	// been properly constructed with a thing that implements client.Object and
 	// runtime.Object.
@@ -182,9 +201,6 @@ func New(
 	}
 	if r.defaultDeletionPolicy == "" {
 		r.defaultDeletionPolicy = tcloudcommon.DeletionPolicyDelete
-	}
-	if r.defaultAdoptionPolicy == "" {
-		r.defaultAdoptionPolicy = tcloudcommon.AdoptionPolicyAdopt
 	}
 	return &r, nil
 }
