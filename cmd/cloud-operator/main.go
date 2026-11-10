@@ -16,7 +16,10 @@ import (
 
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 	ctrlnamespace "github.com/temporalio/cloud-operator/controller/namespace"
+	ctrlserviceaccount "github.com/temporalio/cloud-operator/controller/serviceaccount"
+	"github.com/temporalio/cloud-operator/pkg/reconciler/base"
 	"github.com/temporalio/cloud-operator/pkg/version"
+	ktcontroller "github.com/temporalio/kube-temporal/pkg/controller"
 	"github.com/temporalio/kube-temporal/pkg/controller/config"
 	tcclient "go.temporal.io/cloud-sdk/cloudclient"
 )
@@ -85,20 +88,29 @@ func main() {
 		os.Exit(1)
 	}
 
-	setupLog.Info("initializing controller")
-	c := ctrlnamespace.New(
-		cfg,
-		rootLogger,
-		ctrlnamespace.WithDefaultCloudClient(*tcc),
-	)
+	setupLog.Info("initializing controllers")
+	controllers := []*ktcontroller.Controller{
+		ctrlnamespace.New(
+			cfg,
+			rootLogger,
+			ctrlnamespace.WithDefaultCloudClient(*tcc),
+		),
+		ctrlserviceaccount.New(
+			cfg,
+			rootLogger,
+			base.WithDefaultCloudClient(*tcc),
+		),
+	}
 
-	if err = c.BindManager(mgr); err != nil {
-		setupLog.Error(
-			err,
-			"failed binding controller to controller manager",
-			"controller", c.Name(),
-		)
-		os.Exit(1)
+	for _, c := range controllers {
+		if err = c.BindManager(mgr); err != nil {
+			setupLog.Error(
+				err,
+				"failed binding controller to controller manager",
+				"controller", c.Name(),
+			)
+			os.Exit(1)
+		}
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
