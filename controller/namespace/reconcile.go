@@ -125,7 +125,7 @@ func (r *Reconciler) ResourceLatest(
 	resourceID := latest.ResourceID()
 
 	var tns *tcloudnamespacev1.Namespace
-	if !latest.PreviouslyReconciled() {
+	if !current.(types.Resource).PreviouslyReconciled() {
 		// The qualified namespace name is only known once a reconcile after
 		// the create has saved it to status, and status can be lost (e.g. the
 		// CR was recreated). Look the namespace up by name so that a duplicate
@@ -224,7 +224,7 @@ func (r *Reconciler) syncNamespace(
 
 	resourceID := latest.ResourceID()
 
-	if !latest.PreviouslyReconciled() {
+	if latest.ResourceStatus().ID == "" {
 		cr := desired.CR()
 		ns := cr.(*tcloudv1alpha1.Namespace)
 		tns := ns.ToProto()

@@ -32,13 +32,13 @@ func (r Resource) DeletionPolicy() tcloudcommon.DeletionPolicy {
 		}
 		return r.defaultDeletionPolicy
 	}
-	dp = strings.ToLower(strings.TrimSpace(dp))
+	dp = strings.ToLower(dp)
 	return tcloudcommon.DeletionPolicy(dp)
 }
 
 // SetDeletionPolicy sets the resource's deletion policy annotation.
 func (r *Resource) SetDeletionPolicy(p tcloudcommon.DeletionPolicy) {
-	r.setAnnotation(tcloudcommon.AnnotationKeyDeletionPolicy, string(p))
+	r.SetAnnotation(tcloudcommon.AnnotationKeyDeletionPolicy, string(p))
 }
 
 // IsAdopted returns true if the resource was adopted by TCO.
@@ -57,7 +57,7 @@ func (r Resource) AdoptedOn() (*time.Time, error) {
 	if !found {
 		return nil, nil
 	}
-	t, err := time.Parse(time.RFC3339, strings.TrimSpace(annoVal))
+	t, err := time.Parse(time.RFC3339, annoVal)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"failed parsing adopted-on timestamp %q: %w",
@@ -70,7 +70,7 @@ func (r Resource) AdoptedOn() (*time.Time, error) {
 // SetAdoptedOn sets the resource's adopted on timestamp.
 func (r *Resource) SetAdoptedOn(t time.Time) {
 	ts := t.UTC().Format(time.RFC3339)
-	r.setAnnotation(tcloudcommon.AnnotationKeyAdoptedOn, ts)
+	r.SetAnnotation(tcloudcommon.AnnotationKeyAdoptedOn, ts)
 }
 
 // AdoptionPolicy returns the adoption policy on the resource. If no adoption
@@ -81,23 +81,22 @@ func (r Resource) AdoptionPolicy() tcloudcommon.AdoptionPolicy {
 	if !found {
 		return r.defaultAdoptionPolicy
 	}
-	ap = strings.ToLower(strings.TrimSpace(ap))
+	ap = strings.ToLower(ap)
 	return tcloudcommon.AdoptionPolicy(ap)
 }
 
 // SetAdoptionPolicy sets the resource's adoption policy annotation.
 func (r *Resource) SetAdoptionPolicy(p tcloudcommon.AdoptionPolicy) {
-	r.setAnnotation(tcloudcommon.AnnotationKeyAdoptionPolicy, string(p))
+	r.SetAnnotation(tcloudcommon.AnnotationKeyAdoptionPolicy, string(p))
 }
 
-// setAnnotation sets the supplied annotation, creating the resource's
-// annotations map first if it has none. The embedded SetAnnotation writes to
-// the existing map and panics when it is nil.
-func (r *Resource) setAnnotation(key, value string) {
+// SetAnnotation initializes the annotations map if needed, then calls
+// kube-temporal's setter, which panics on a nil map.
+func (r *Resource) SetAnnotation(key, value string) {
 	if r.Annotations() == nil {
 		r.ReplaceAnnotations(annotation.Annotations{})
 	}
-	r.SetAnnotation(key, value)
+	r.Resource.SetAnnotation(key, value)
 }
 
 // PreviouslyReconciled returns true if the Resource has previously been
@@ -116,7 +115,7 @@ func (r Resource) ResourceID() string {
 		return id
 	}
 	id, _ := annotation.Value(r, tcloudcommon.AnnotationKeyResourceID)
-	return strings.TrimSpace(id)
+	return id
 }
 
 // statusResourceID returns the resource's Status.Resource.ID
