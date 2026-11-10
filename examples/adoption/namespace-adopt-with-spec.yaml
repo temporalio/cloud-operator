@@ -1,0 +1,12 @@
+# Fails: once spec is set, replicas and retentionDays are required, even when adopting.
+apiVersion: cloud.temporal.io/v1alpha1
+kind: Namespace
+metadata:
+  name: adopt-with-spec
+  annotations:
+    cloud.temporal.io/adoption-policy: adopt
+    cloud.temporal.io/resource-id: adopt-with-spec.abc12
+spec:
+  description: Payments namespace
+  tags:
+    team: payments

@@ -1,0 +1,55 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: temporal-cloud-resource-validation
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: ["cloud.temporal.io"]
+      apiVersions: ["*"]
+      operations: ["CREATE", "UPDATE"]
+      resources: ["namespaces"]
+  variables:
+  - name: adoptionPolicy
+    expression: "object.?metadata.annotations['cloud.temporal.io/adoption-policy']"
+  - name: adopt
+    expression: "variables.adoptionPolicy.orValue('') == 'adopt'"
+  - name: resourceID
+    expression: "object.?metadata.annotations['cloud.temporal.io/resource-id'].orValue('')"
+  validations:
+  # No adoption annotation or if there is, it has to be either of the two values
+  - expression: >-
+      !variables.adoptionPolicy.hasValue() ||
+      variables.adoptionPolicy.value() in ['adopt', 'adopt-or-create']
+    messageExpression: >-
+      'metadata.annotations[cloud.temporal.io/adoption-policy]: Unsupported value: "' +
+      variables.adoptionPolicy.value() + '": supported values: "adopt", "adopt-or-create"'
+    reason: Invalid
+  # If adoption is requested, a resource ID must be set.
+  - expression: >-
+      !(variables.adoptionPolicy.orValue('') in ['adopt', 'adopt-or-create']) ||
+      variables.resourceID != ''
+    message: >-
+      metadata.annotations[cloud.temporal.io/resource-id]: Required value when the
+      cloud.temporal.io/adoption-policy annotation is "adopt" or "adopt-or-create"
+    reason: Invalid
+  # A resource ID is only used for adoption.
+  - expression: "variables.adoptionPolicy.hasValue() || variables.resourceID == ''"
+    message: >-
+      metadata.annotations[cloud.temporal.io/resource-id]: Forbidden: requires the
+      cloud.temporal.io/adoption-policy annotation
+    reason: Invalid
+  - expression: "variables.adopt || has(object.spec)"
+    message: >-
+      spec: Required value unless the cloud.temporal.io/adoption-policy
+      annotation is "adopt"
+    reason: Invalid
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: temporal-cloud-resource-validation
+spec:
+  policyName: temporal-cloud-resource-validation
+  validationActions: [Deny]

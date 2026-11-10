@@ -26,9 +26,11 @@ type Namespace struct {
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	// Spec defines the desired state of the Namespace.
-	// +required
-	Spec NamespaceSpec `json:"spec"`
+	// Spec defines the desired state of the Namespace. It may be omitted only
+	// when adopting an existing Temporal Cloud Namespace, i.e. when the
+	// cloud.temporal.io/adoption-policy annotation is "adopt".
+	// +optional
+	Spec NamespaceSpec `json:"spec,omitzero"`
 	// +optional
 	// Status describes the current status of a Namespace.
 	Status NamespaceStatus `json:"status,omitempty"`
@@ -109,16 +111,18 @@ type NamespaceSpec struct {
 	Tags map[string]string `json:"tags,omitempty"`
 	// Replicas are the regions where the Namespace is placed.
 	// Maps to Temporal Cloud proto `NamespaceSpec.replicas`.
-	// +required
+	// Required and is enforced by the temporal-cloud-namespace-validation admission policy.
+	// +optional
 	// +listType=map
 	// +listMapKey=region
 	// +kubebuilder:validation:MinItems=1
-	Replicas []ReplicaSpec `json:"replicas"`
+	Replicas []ReplicaSpec `json:"replicas,omitempty"`
 	// RetentionDays is the number of days that closed workflow histories are
 	// kept.
 	// Maps to Temporal Cloud proto `NamespaceSpec.retention_days`.
-	// +required
-	RetentionDays int32 `json:"retentionDays"`
+	// Required and is enforced by the temporal-cloud-namespace-validation admission policy.
+	// +optional
+	RetentionDays int32 `json:"retentionDays,omitempty"`
 	// MTLSAuth configures mTLS client authentication.
 	// Maps to Temporal Cloud proto `NamespaceSpec.mtls_auth`.
 	// +optional

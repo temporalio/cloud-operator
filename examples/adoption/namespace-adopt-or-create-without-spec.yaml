@@ -1,0 +1,8 @@
+# Fails: adopt-or-create may create the Namespace, so spec is required.
+apiVersion: cloud.temporal.io/v1alpha1
+kind: Namespace
+metadata:
+  name: adopt-or-create-without-spec
+  annotations:
+    cloud.temporal.io/adoption-policy: adopt-or-create
+    cloud.temporal.io/resource-id: adopt-or-create-without-spec.abc12

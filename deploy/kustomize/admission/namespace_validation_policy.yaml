@@ -1,0 +1,34 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: temporal-cloud-namespace-validation
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: ["cloud.temporal.io"]
+      apiVersions: ["*"]
+      operations: ["CREATE", "UPDATE"]
+      resources: ["namespaces"]
+  variables:
+  - name: adopt
+    expression: "object.?metadata.annotations['cloud.temporal.io/adoption-policy'].orValue('') == 'adopt'"
+  - name: missingSpecFields
+    expression: >-
+      !has(object.spec) ? [] :
+      (has(object.spec.replicas) ? [] : ['spec.replicas']) +
+      (has(object.spec.retentionDays) ? [] : ['spec.retentionDays'])
+  validations:
+  - expression: "size(variables.missingSpecFields) == 0"
+    messageExpression: >-
+      variables.missingSpecFields.join(', ') + ': Required value' +
+      (variables.adopt ? '; to adopt the Namespace as is, omit spec' : '')
+    reason: Invalid
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: temporal-cloud-namespace-validation
+spec:
+  policyName: temporal-cloud-namespace-validation
+  validationActions: [Deny]
