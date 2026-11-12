@@ -27,8 +27,10 @@ type Namespace struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// Spec defines the desired state of the Namespace.
-	// +required
-	Spec NamespaceSpec `json:"spec"`
+	// A CR that adopts an existing Namespace can leave it out; adopting fills
+	// it in from Temporal Cloud.
+	// +optional
+	Spec NamespaceSpec `json:"spec,omitzero"`
 	// +optional
 	// Status describes the current status of a Namespace.
 	Status NamespaceStatus `json:"status,omitempty"`
@@ -107,18 +109,21 @@ type NamespaceSpec struct {
 	// Maps to Temporal Cloud proto `Namespace.tags`.
 	// +optional
 	Tags map[string]string `json:"tags,omitempty"`
-	// Replicas are the regions where the Namespace is placed.
+	// Replicas are the regions where the Namespace is placed. Required unless
+	// the CR adopts an existing Namespace; a ValidatingAdmissionPolicy checks
+	// this at kubectl apply.
 	// Maps to Temporal Cloud proto `NamespaceSpec.replicas`.
-	// +required
+	// +optional
 	// +listType=map
 	// +listMapKey=region
 	// +kubebuilder:validation:MinItems=1
-	Replicas []ReplicaSpec `json:"replicas"`
+	Replicas []ReplicaSpec `json:"replicas,omitempty"`
 	// RetentionDays is the number of days that closed workflow histories are
-	// kept.
+	// kept. Required unless the CR adopts an existing Namespace; a
+	// ValidatingAdmissionPolicy checks this at kubectl apply.
 	// Maps to Temporal Cloud proto `NamespaceSpec.retention_days`.
-	// +required
-	RetentionDays int32 `json:"retentionDays"`
+	// +optional
+	RetentionDays int32 `json:"retentionDays,omitempty"`
 	// MTLSAuth configures mTLS client authentication.
 	// Maps to Temporal Cloud proto `NamespaceSpec.mtls_auth`.
 	// +optional
@@ -993,7 +998,8 @@ type NamespaceStatus struct {
 	tmprlcorev1.StatusBase `json:",inline"`
 	// Resource contains common information about the Temporal Cloud resource
 	// that this CR represents.
-	Resource cloudcommon.ResourceStatus `json:"resource"`
+	// +optional
+	Resource cloudcommon.ResourceStatus `json:"resource,omitempty"`
 	// References is an optional field containing the Temporal Cloud resource
 	// IDs for any related resources.
 	References NamespaceReferences `json:"references,omitempty"`

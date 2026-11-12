@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 
 	ctrlerrors "github.com/temporalio/kube-temporal/pkg/controller/errors"
 	ctrlreqlog "github.com/temporalio/kube-temporal/pkg/controller/request/log"
@@ -122,10 +123,38 @@ func (r *Reconciler) ResourceLatest(
 	// is what is returned from this function.
 	cr := latest.CR()
 	ns := cr.(*tcloudv1alpha1.Namespace)
+	// resourceID is status.resource.id if an earlier reconcile linked the CR,
+	// otherwise the cloud.temporal.io/resource-id annotation.
 	resourceID := latest.ResourceID()
 
+	// current is the CR as read, so it says whether an earlier reconcile
+	// linked it and whether it asks to be adopted.
+	cur := current.(types.Resource)
+
 	var tns *tcloudnamespacev1.Namespace
-	if !current.(types.Resource).PreviouslyReconciled() {
+	switch {
+	case cur.PreviouslyReconciled():
+		// Linked before: get the namespace by status.resource.id
+		tns, err = getNamespaceByID(ctx, tcc, resourceID)
+		if err != nil {
+			return latest, fmt.Errorf("failed getting tcloud namespace: %w", err)
+		}
+	case cur.AdoptionPolicy() == cloudcommon.AdoptionPolicyAdopt:
+		// Not linked yet and asks to be adopted: get the namespace named by
+		// the resource-id annotation.
+		if resourceID != "" {
+			tns, err = getNamespaceByID(ctx, tcc, resourceID)
+			if err != nil {
+				return latest, fmt.Errorf("failed getting tcloud namespace %q to adopt: %w", resourceID, err)
+			}
+		}
+		// Nothing to adopt. Without an error the controller would see no
+		// difference from the annotations-only CR and report success.
+		if tns == nil {
+			err = fmt.Errorf("no tcloud namespace with ID %q to adopt", resourceID)
+			return latest, err
+		}
+	default:
 		// The qualified namespace name is only known once a reconcile after
 		// the create has saved it to status, and status can be lost (e.g. the
 		// CR was recreated). Look the namespace up by name so that a duplicate
@@ -134,20 +163,6 @@ func (r *Reconciler) ResourceLatest(
 		if err != nil {
 			return latest, fmt.Errorf("failed listing tcloud namespaces: %w", err)
 		}
-	} else {
-		var resp *tcloudservicev1.GetNamespaceResponse
-		resp, err = tcc.GetNamespace(ctx, &tcloudservicev1.GetNamespaceRequest{
-			Namespace: resourceID,
-		})
-		if status.Code(err) == codes.NotFound {
-			// The namespace was deleted outside of the operator. Treat it
-			// the same as one that was never created so ResourceSync
-			// recreates it.
-			err = nil
-		} else if err != nil {
-			return latest, fmt.Errorf("failed getting tcloud namespace: %w", err)
-		}
-		tns = resp.GetNamespace()
 	}
 
 	if tns == nil {
@@ -213,6 +228,14 @@ func (r *Reconciler) syncNamespace(
 		exit(err)
 	}()
 
+	// Adoption comes before the create branch, so a CR asking to adopt an
+	// existing Namespace never creates one.
+	if wantsAdoption(desired) {
+		var adopted kttypes.Resource
+		adopted, err = adoptNamespace(desired, latest, time.Now())
+		return adopted, err
+	}
+
 	// Make a copy of the latest resource. We may modify and return this copy,
 	// ensuring that neither the desired nor latest parameter is ever mutated.
 	updated := latest.DeepCopy()
@@ -225,6 +248,18 @@ func (r *Reconciler) syncNamespace(
 	resourceID := latest.ResourceID()
 
 	if latest.ResourceStatus().ID == "" {
+
+		// The operator doesn't recreate a Namespace it adopted
+		if desired.IsAdopted() {
+			err = ctrlerrors.NewTerminalError(fmt.Errorf(
+				"%w: adopted tcloud namespace %q no longer exists in Temporal Cloud; "+
+					"the operator doesn't recreate adopted namespaces, "+
+					"delete this CR to stop managing it",
+				ctrlerrors.ErrResourceSync, desired.ResourceID(),
+			))
+			return resetLatestStatus(desired, latest), err
+		}
+
 		cr := desired.CR()
 		ns := cr.(*tcloudv1alpha1.Namespace)
 		tns := ns.ToProto()
@@ -245,16 +280,15 @@ func (r *Reconciler) syncNamespace(
 	desiredNS := desired.CR().(*tcloudv1alpha1.Namespace)
 	latestNS := latest.CR().(*tcloudv1alpha1.Namespace)
 
-	// spec.project is immutable on the CR, so a mismatch means the namespace
-	// was moved outside of the operator. An empty spec.project means the
-	// account's default project, whose ID Temporal Cloud reports back.
-	if desiredNS.Spec.Project.ID != "" && desiredNS.Spec.Project != latestNS.Spec.Project {
+	// If the CR specifies a project ID, it must match the project reported
+	// by Temporal Cloud. An unset project does not need this check.
+	if p := desiredNS.Spec.Project; p != nil && p.ID != "" && p.ID != latestNS.Status.References.Project {
 		return updated, ctrlerrors.NewTerminalError(
 			fmt.Errorf(
 				"%w: tcloud namespace %q is in project %q "+
 					"but spec.project.id is %q",
 				ctrlerrors.ErrResourceSync, resourceID,
-				latestNS.Spec.Project.ID, desiredNS.Spec.Project.ID,
+				latestNS.Status.References.Project, p.ID,
 			),
 		)
 	}
@@ -399,6 +433,27 @@ func cloudCallError(action string, err error) error {
 		return requeue.NeededAfter(wrapped, requeue.DefaultRequeueAfterDuration)
 	}
 	return wrapped
+}
+
+// getNamespaceByID returns the Temporal Cloud Namespace with the supplied ID
+func getNamespaceByID(
+	ctx context.Context,
+	tcc tcloudservicev1.CloudServiceClient,
+	id string,
+) (*tcloudnamespacev1.Namespace, error) {
+	resp, err := tcc.GetNamespace(ctx, &tcloudservicev1.GetNamespaceRequest{
+		Namespace: id,
+	})
+
+	if status.Code(err) == codes.NotFound {
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return resp.GetNamespace(), nil
 }
 
 // findNamespaceByName returns the Temporal Cloud Namespace with the supplied
