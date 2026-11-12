@@ -124,9 +124,8 @@ func (s ServiceAccountSpec) FromProto(in *tcloudidentityv1.ServiceAccountSpec) S
 	return out
 }
 
-// ToProto returns the Temporal Cloud ServiceAccountSpec for the spec. A
-// Namespace ref takes its ID from refs.Namespaces, keyed by
-// [cloudcommon.ResourceReference.Key] with `referrerNamespace`.
+// ToProto returns the Temporal Cloud ServiceAccountSpec for the spec, with each
+// Namespace ref replaced by its ID from `refs`.
 func (s ServiceAccountSpec) ToProto(
 	referrerNamespace string,
 	refs ServiceAccountReferences,
@@ -135,7 +134,8 @@ func (s ServiceAccountSpec) ToProto(
 		if namespace.Ref == nil {
 			return namespace.ID
 		}
-		return refs.Namespaces[namespace.Ref.Key(referrerNamespace)]
+		id, _ := refs.NamespaceID(*namespace.Ref, referrerNamespace)
+		return id
 	}
 
 	out := &tcloudidentityv1.ServiceAccountSpec{
@@ -190,7 +190,7 @@ type ProjectScopedAccess struct {
 type AccountScopedAccess struct {
 	// AccountAccess is the access to the account.
 	// Maps to Temporal Cloud proto `Access.account_access`.
-	// +optional
+	// +required
 	AccountAccess *AccountAccess `json:"accountAccess,omitempty"`
 	// NamespaceAccesses are the accesses to individual Namespaces.
 	// Maps to Temporal Cloud proto `Access.namespace_accesses`.
@@ -250,7 +250,7 @@ func (a AccountScopedAccess) toProto(
 type AccountAccess struct {
 	// Role is the role on the account.
 	// Maps to Temporal Cloud proto `AccountAccess.role`.
-	// +optional
+	// +required
 	Role AccountRole `json:"role,omitempty"`
 	// CustomRoles are the custom roles assigned.
 	// Maps to Temporal Cloud proto `AccountAccess.custom_roles`.
@@ -590,11 +590,47 @@ type ServiceAccountStatus struct {
 // ServiceAccountReferences contains the Temporal Cloud IDs of the custom
 // resources referenced by the spec.
 type ServiceAccountReferences struct {
-	// Namespaces maps each referenced Namespace custom resource, as
-	// namespace/name, to its Temporal Cloud ID. The ID is empty until the
-	// Namespace is Active.
+	// Namespaces are the Namespace CRs referenced by the spec that have a
+	// Temporal Cloud ID.
 	// +optional
-	Namespaces map[string]string `json:"namespaces,omitempty"`
+	// +listType=map
+	// +listMapKey=namespace
+	// +listMapKey=name
+	Namespaces []NamespaceResolvedReference `json:"namespaces,omitempty"`
+}
+
+// NamespaceID returns the Temporal Cloud ID of the Namespace CR that the
+// supplied reference points to, and whether it has been resolved.
+func (r ServiceAccountReferences) NamespaceID(
+	ref cloudcommon.ResourceReference,
+	referrerNamespace string,
+) (string, bool) {
+	namespace := ref.Namespace
+	if namespace == "" {
+		namespace = referrerNamespace
+	}
+	for _, resolved := range r.Namespaces {
+		if resolved.Namespace == namespace && resolved.Name == ref.Name {
+			return resolved.ID, true
+		}
+	}
+	return "", false
+}
+
+// NamespaceResolvedReference contains a Kubernetes Namespace and Name for a
+// Temporal Cloud Namespace CR along with its resolved Temporal Cloud resource
+// identifier.
+type NamespaceResolvedReference struct {
+	// Namespace is the Kubernetes Namespace containing the Temporal Cloud
+	// Namespace CR.
+	// +required
+	Namespace string `json:"namespace"`
+	// Name is the Kubernetes Name of the Temporal Cloud Namespace CR.
+	// +required
+	Name string `json:"name"`
+	// ID is the Temporal Cloud resource identifier.
+	// +required
+	ID string `json:"id"`
 }
 
 // ServiceAccountList is a list of ServiceAccount resources

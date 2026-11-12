@@ -54,7 +54,7 @@ func TestReconciler_ResourceSync_Create(t *testing.T) {
 	}
 
 	unresolved := notCreated.DeepCopy()
-	unresolved.Status.References = resolvedRefs("")
+	unresolved.Status.References = tcloudv1alpha1.ServiceAccountReferences{}
 
 	// Empty exp fields mean "none": no error message to match and no ID saved.
 	cases := []struct {
@@ -143,7 +143,7 @@ func TestReconciler_ResourceSync(t *testing.T) {
 	movedNamespace.Spec.NamespaceScopedAccess.Namespace = id("other.acct1")
 
 	unresolved := active.DeepCopy()
-	unresolved.Status.References = resolvedRefs("")
+	unresolved.Status.References = tcloudv1alpha1.ServiceAccountReferences{}
 
 	cases := []struct {
 		name       string

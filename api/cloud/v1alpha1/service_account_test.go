@@ -109,9 +109,9 @@ func TestServiceAccountSpec_ToProto(t *testing.T) {
 				},
 			},
 			refs: tcloudv1alpha1.ServiceAccountReferences{
-				Namespaces: map[string]string{
-					"apps/payments":  "payments.acct",
-					"shared/billing": "billing.acct",
+				Namespaces: []tcloudv1alpha1.NamespaceResolvedReference{
+					{Namespace: "apps", Name: "payments", ID: "payments.acct"},
+					{Namespace: "shared", Name: "billing", ID: "billing.acct"},
 				},
 			},
 			exp: &tcloudidentityv1.ServiceAccountSpec{
@@ -148,7 +148,9 @@ func TestServiceAccountSpec_ToProto(t *testing.T) {
 				},
 			},
 			refs: tcloudv1alpha1.ServiceAccountReferences{
-				Namespaces: map[string]string{"apps/payments": "payments.acct"},
+				Namespaces: []tcloudv1alpha1.NamespaceResolvedReference{
+					{Namespace: "apps", Name: "payments", ID: "payments.acct"},
+				},
 			},
 			exp: &tcloudidentityv1.ServiceAccountSpec{
 				Name: "worker",
@@ -331,7 +333,9 @@ func TestServiceAccount_FromProto(t *testing.T) {
 	sa := tcloudv1alpha1.ServiceAccount{}
 	sa.Name = "ci"
 	sa.Namespace = "apps"
-	sa.Status.References.Namespaces = map[string]string{"apps/payments": "payments.acct"}
+	sa.Status.References.Namespaces = []tcloudv1alpha1.NamespaceResolvedReference{
+		{Namespace: "apps", Name: "payments", ID: "payments.acct"},
+	}
 
 	cases := []struct {
 		name     string

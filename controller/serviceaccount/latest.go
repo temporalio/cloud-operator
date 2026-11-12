@@ -11,6 +11,7 @@ import (
 	tcloudidentityv1 "go.temporal.io/cloud-sdk/api/identity/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	cloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
@@ -85,19 +86,29 @@ func (r *Reconciler) resolveReferences(
 	cr *tcloudv1alpha1.ServiceAccount,
 ) (tcloudv1alpha1.ServiceAccountReferences, error) {
 	var out tcloudv1alpha1.ServiceAccountReferences
+	// The spec might reference the same Namespace more than once by mistake.
+	// However, it is only listed once in the resolved references.
+	seen := map[client.ObjectKey]bool{}
 	for _, nr := range namespaceRefs(cr.Spec) {
-		key := nr.refOrID.Ref.Key(cr.Namespace)
-		if _, ok := out.Namespaces[key]; ok {
+		key := client.ObjectKey{Namespace: nr.refOrID.Ref.Namespace, Name: nr.refOrID.Ref.Name}
+		if key.Namespace == "" {
+			key.Namespace = cr.Namespace
+		}
+		if seen[key] {
 			continue
 		}
+		seen[key] = true
+
 		id, err := common.ResolveNamespaceID(ctx, r.KubeReader(), cr.Namespace, nr.refOrID)
-		if err != nil && !errors.Is(err, common.ErrReferenceNotReady) {
+		if errors.Is(err, common.ErrReferenceNotReady) {
+			continue
+		}
+		if err != nil {
 			return out, err
 		}
-		if out.Namespaces == nil {
-			out.Namespaces = map[string]string{}
-		}
-		out.Namespaces[key] = id
+		out.Namespaces = append(out.Namespaces, tcloudv1alpha1.NamespaceResolvedReference{
+			Namespace: key.Namespace, Name: key.Name, ID: id,
+		})
 	}
 	return out, nil
 }

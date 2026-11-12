@@ -160,7 +160,8 @@ func checkReferences(
 ) error {
 	check := common.NewReferenceCheck(cr.Namespace)
 	for _, nr := range namespaceRefs(cr.Spec) {
-		check.Pending(nr.path, nr.refOrID, refs.Namespaces[nr.refOrID.Ref.Key(cr.Namespace)])
+		id, _ := refs.NamespaceID(*nr.refOrID.Ref, cr.Namespace)
+		check.Pending(nr.path, nr.refOrID, id)
 	}
 
 	// TODO(tomba): support Project and custom role refs once their controllers exist.
@@ -179,7 +180,49 @@ func checkReferences(
 	case spec.ProjectScopedAccess != nil:
 		check.Unsupported("spec.projectScopedAccess.project", spec.ProjectScopedAccess.Project)
 	}
+	if err := checkDuplicateNamespaces(cr, refs); err != nil {
+		return err
+	}
 	return check.Err()
+}
+
+// checkDuplicateNamespaces returns a terminal error when two namespace accesses
+// in the spec refer to the same Temporal Cloud namespace.
+func checkDuplicateNamespaces(
+	cr *tcloudv1alpha1.ServiceAccount,
+	refs tcloudv1alpha1.ServiceAccountReferences,
+) error {
+	var path string
+	var entries []tcloudv1alpha1.NamespaceScopedAccess
+	switch {
+	case cr.Spec.AccountScopedAccess != nil:
+		path = "spec.accountScopedAccess.namespaceAccesses"
+		entries = cr.Spec.AccountScopedAccess.NamespaceAccesses
+	case cr.Spec.ProjectScopedAccess != nil:
+		path = "spec.projectScopedAccess.namespaceAccesses"
+		entries = cr.Spec.ProjectScopedAccess.NamespaceAccesses
+	}
+
+	seen := map[string]int{}
+	for i, e := range entries {
+		id := e.Namespace.ID
+		if e.Namespace.Ref != nil {
+			id, _ = refs.NamespaceID(*e.Namespace.Ref, cr.Namespace)
+		}
+		if id == "" {
+			continue
+		}
+		if first, ok := seen[id]; ok {
+			return ctrlerrors.NewTerminalError(
+				fmt.Errorf(
+					"%w: %s[%d].namespace and %s[%d].namespace both refer to tcloud namespace %q",
+					ctrlerrors.ErrResourceSync, path, first, path, i, id,
+				),
+			)
+		}
+		seen[id] = i
+	}
+	return nil
 }
 
 // scopeMismatch reports whether the scope or target Temporal Cloud reports

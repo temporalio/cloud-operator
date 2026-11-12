@@ -114,8 +114,11 @@ func (c *ReferenceCheck) Pending(
 	if refOrID.Ref == nil || resolved != "" {
 		return
 	}
-	key := refOrID.Ref.Key(c.referrerNamespace)
-	c.pending = append(c.pending, fmt.Sprintf("%s (%s)", path, key))
+	namespace := refOrID.Ref.Namespace
+	if namespace == "" {
+		namespace = c.referrerNamespace
+	}
+	c.pending = append(c.pending, fmt.Sprintf("%s (%s/%s)", path, namespace, refOrID.Ref.Name))
 }
 
 // Unsupported records the reference at path when it is a ref to a kind that

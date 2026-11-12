@@ -46,7 +46,9 @@ func TestReconciler_ResourceLatest(t *testing.T) {
 				require.Equal(t, tcloudv1alpha1.ServiceAccountSpec{}, got.Spec)
 				require.Empty(t, got.Status.Resource.ID)
 				require.Equal(t, tcloudv1alpha1.ServiceAccountReferences{
-					Namespaces: map[string]string{"apps/payments": nsID},
+					Namespaces: []tcloudv1alpha1.NamespaceResolvedReference{
+						{Namespace: "apps", Name: "payments", ID: nsID},
+					},
 				}, got.Status.References)
 			},
 		},
@@ -64,17 +66,15 @@ func TestReconciler_ResourceLatest(t *testing.T) {
 			},
 		},
 		{
-			name:     "a namespace without an id yet is stored as an empty ref",
+			name:     "a namespace without an id yet isn't listed",
 			cr:       newServiceAccount(ref(nsName)),
 			kubeObjs: []runtime.Object{referencedNamespace("")},
 			assert: func(t *testing.T, got *tcloudv1alpha1.ServiceAccount) {
-				require.Equal(t, tcloudv1alpha1.ServiceAccountReferences{
-					Namespaces: map[string]string{"apps/payments": ""},
-				}, got.Status.References)
+				require.Empty(t, got.Status.References.Namespaces)
 			},
 		},
 		{
-			name: "a namespace that is still activating is stored as an empty ref",
+			name: "a namespace that is still activating isn't listed",
 			cr:   newServiceAccount(ref(nsName)),
 			kubeObjs: func() []runtime.Object {
 				ns := referencedNamespace(nsID)
@@ -82,13 +82,11 @@ func TestReconciler_ResourceLatest(t *testing.T) {
 				return []runtime.Object{ns}
 			}(),
 			assert: func(t *testing.T, got *tcloudv1alpha1.ServiceAccount) {
-				require.Equal(t, tcloudv1alpha1.ServiceAccountReferences{
-					Namespaces: map[string]string{"apps/payments": ""},
-				}, got.Status.References)
+				require.Empty(t, got.Status.References.Namespaces)
 			},
 		},
 		{
-			name: "each referenced namespace is stored once by namespace/name",
+			name: "each resolved namespace is listed once",
 			cr: func() *tcloudv1alpha1.ServiceAccount {
 				sa := newServiceAccount(id(nsID))
 				sa.Spec.NamespaceScopedAccess = nil
@@ -108,9 +106,8 @@ func TestReconciler_ResourceLatest(t *testing.T) {
 			}(),
 			kubeObjs: []runtime.Object{referencedNamespace(nsID)},
 			assert: func(t *testing.T, got *tcloudv1alpha1.ServiceAccount) {
-				require.Equal(t, map[string]string{
-					kubeNamespace + "/" + nsName: nsID,
-					"shared/billing":             "",
+				require.Equal(t, []tcloudv1alpha1.NamespaceResolvedReference{
+					{Namespace: "apps", Name: "payments", ID: nsID},
 				}, got.Status.References.Namespaces)
 			},
 		},
@@ -134,7 +131,9 @@ func TestReconciler_ResourceLatest(t *testing.T) {
 				require.Equal(t, cloudcommon.ResourceStateActive, got.Status.Resource.State)
 				require.Equal(t, id(nsID), got.Spec.NamespaceScopedAccess.Namespace)
 				require.Equal(t, tcloudv1alpha1.ServiceAccountReferences{
-					Namespaces: map[string]string{"apps/payments": nsID},
+					Namespaces: []tcloudv1alpha1.NamespaceResolvedReference{
+						{Namespace: "apps", Name: "payments", ID: nsID},
+					},
 				}, got.Status.References)
 			},
 		},

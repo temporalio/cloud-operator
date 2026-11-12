@@ -24,13 +24,3 @@ type ResourceReference struct {
 	// +required
 	Name string `json:"name"`
 }
-
-// Key returns the reference as namespace/name, using referrerNamespace when
-// the reference has no namespace.
-func (r ResourceReference) Key(referrerNamespace string) string {
-	ns := r.Namespace
-	if ns == "" {
-		ns = referrerNamespace
-	}
-	return ns + "/" + r.Name
-}

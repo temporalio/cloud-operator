@@ -131,6 +131,8 @@ func cloudSpec() *tcloudidentityv1.ServiceAccountSpec {
 
 func resolvedRefs(namespaceID string) tcloudv1alpha1.ServiceAccountReferences {
 	return tcloudv1alpha1.ServiceAccountReferences{
-		Namespaces: map[string]string{kubeNamespace + "/" + nsName: namespaceID},
+		Namespaces: []tcloudv1alpha1.NamespaceResolvedReference{
+			{Namespace: kubeNamespace, Name: nsName, ID: namespaceID},
+		},
 	}
 }
