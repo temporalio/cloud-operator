@@ -1,7 +1,6 @@
 package namespace
 
 import (
-	"errors"
 	"testing"
 	"time"
 
@@ -34,50 +33,86 @@ func newAdoptTestResources(
 	return NewResource(cr), NewResource(found)
 }
 
-func TestAdoptNamespace_Adopts(t *testing.T) {
-	desired, latest := newAdoptTestResources("my-ns.acct1", cloudcommon.ResourceStateActive)
-	latestNS := latest.CR().(*tcloudv1alpha1.Namespace)
-	latestNS.Spec.Replicas = []tcloudv1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}}
-	latestNS.Spec.RetentionDays = 30
+// adoptOutcome is what adoptNamespace is expected to do with a case.
+type adoptOutcome int
 
-	got, err := adoptNamespace(desired, latest, adoptTestTime)
+const (
+	// adopted: no error, the CR is linked to the found ID and has adopted-on.
+	adopted adoptOutcome = iota
+	// requeued: a requeue error, not linked, no adopted-on.
+	requeued
+	// refused: a terminal error, not linked, no adopted-on.
+	refused
+)
 
-	require.NoError(t, err)
-	adoptedOn, err := got.(types.Resource).AdoptedOn()
-	require.NoError(t, err)
-	require.NotNil(t, adoptedOn)
-	require.True(t, adoptTestTime.Equal(*adoptedOn), "adopted-on is %s", adoptedOn)
-	gotNS := got.CR().(*tcloudv1alpha1.Namespace)
-	require.Equal(t, "my-ns.acct1", gotNS.Status.Resource.ID)
-	require.Equal(t, latestNS.Spec, gotNS.Spec)
-}
+func TestAdoptNamespace(t *testing.T) {
+	cases := []struct {
+		name    string
+		foundID string
+		state   cloudcommon.ResourceState
+		exp     adoptOutcome
+	}{
+		{
+			name:    "adopts an active namespace",
+			foundID: "my-ns.acct1",
+			state:   cloudcommon.ResourceStateActive,
+			exp:     adopted,
+		},
+		{
+			name: "nothing found requeues",
+			exp:  requeued,
+		},
+		{
+			name:    "name mismatch is terminal",
+			foundID: "other-ns.acct1",
+			state:   cloudcommon.ResourceStateActive,
+			exp:     refused,
+		},
+		{
+			name:    "non-adoptable state is terminal",
+			foundID: "my-ns.acct1",
+			state:   cloudcommon.ResourceStateDeleting,
+			exp:     refused,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(tt *testing.T) {
+			require := require.New(tt)
 
-func TestAdoptNamespace_NothingFoundRequeues(t *testing.T) {
-	desired, latest := newAdoptTestResources("", "")
+			desired, latest := newAdoptTestResources(tc.foundID, tc.state)
+			latestNS := latest.CR().(*tcloudv1alpha1.Namespace)
+			latestNS.Spec.Replicas = []tcloudv1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}}
+			latestNS.Spec.RetentionDays = 30
 
-	got, err := adoptNamespace(desired, latest, adoptTestTime)
+			got, err := adoptNamespace(desired, latest, adoptTestTime)
 
-	var requeueAfter *requeue.RequeueNeededAfter
-	require.True(t, errors.As(err, &requeueAfter), "expected a requeue error, got %v", err)
-	require.Empty(t, got.(types.Resource).ResourceStatus().ID)
-}
+			switch tc.exp {
+			case adopted:
+				require.NoError(err)
+			case requeued:
+				var requeueAfter *requeue.RequeueNeededAfter
+				require.ErrorAs(err, &requeueAfter)
+			case refused:
+				var terminal *ctrlerrors.TerminalError
+				require.ErrorAs(err, &terminal)
+			}
 
-func TestAdoptNamespace_NameMismatchIsTerminal(t *testing.T) {
-	desired, latest := newAdoptTestResources("other-ns.acct1", cloudcommon.ResourceStateActive)
+			gotRes := got.(types.Resource)
+			adoptedOn, aoErr := gotRes.AdoptedOn()
+			require.NoError(aoErr)
 
-	got, err := adoptNamespace(desired, latest, adoptTestTime)
-
-	var terminal *ctrlerrors.TerminalError
-	require.True(t, errors.As(err, &terminal), "expected a terminal error, got %v", err)
-	require.Empty(t, got.(types.Resource).ResourceStatus().ID)
-}
-
-func TestAdoptNamespace_NonAdoptableStateIsTerminal(t *testing.T) {
-	desired, latest := newAdoptTestResources("my-ns.acct1", cloudcommon.ResourceStateDeleting)
-
-	got, err := adoptNamespace(desired, latest, adoptTestTime)
-
-	var terminal *ctrlerrors.TerminalError
-	require.True(t, errors.As(err, &terminal), "expected a terminal error, got %v", err)
-	require.Empty(t, got.(types.Resource).ResourceStatus().ID)
+			if tc.exp != adopted {
+				// A refusal or requeue must not link the CR.
+				require.Empty(gotRes.ResourceStatus().ID)
+				require.Nil(adoptedOn)
+				return
+			}
+			require.Equal(tc.foundID, gotRes.ResourceStatus().ID)
+			require.NotNil(adoptedOn)
+			require.True(adoptTestTime.Equal(*adoptedOn), "adopted-on is %s", adoptedOn)
+			// tCloud's spec is copied into the CR.
+			gotNS := got.CR().(*tcloudv1alpha1.Namespace)
+			require.Equal(latestNS.Spec, gotNS.Spec)
+		})
+	}
 }

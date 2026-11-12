@@ -140,8 +140,8 @@ func (r *Reconciler) ResourceLatest(
 			return latest, fmt.Errorf("failed getting tcloud namespace: %w", err)
 		}
 	case cur.AdoptionPolicy() == cloudcommon.AdoptionPolicyAdopt:
-		// Not linked yet and asks to be adopted: get the namespace named by
-		// the resource-id annotation.
+		// Looks up the Namespace by the ID from the resource-id annotation,
+		// which ResourceLatest gets from ResourceID().
 		if resourceID != "" {
 			tns, err = getNamespaceByID(ctx, tcc, resourceID)
 			if err != nil {
