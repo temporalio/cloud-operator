@@ -7,6 +7,7 @@ resources:
 - bases/cloud.temporal.io_clusterconnections.yaml
 - bases/cloud.temporal.io_serviceaccounts.yaml
 - bases/cloud.temporal.io_projects.yaml
+- bases/cloud.temporal.io_apikeys.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:
