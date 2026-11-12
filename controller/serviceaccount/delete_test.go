@@ -11,6 +11,7 @@ import (
 	tcloudservicev1 "go.temporal.io/cloud-sdk/api/cloudservice/v1"
 	tcloudidentityv1 "go.temporal.io/cloud-sdk/api/identity/v1"
 	operationv1 "go.temporal.io/cloud-sdk/api/operation/v1"
+	tcloudresourcev1 "go.temporal.io/cloud-sdk/api/resource/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -49,6 +50,11 @@ func TestReconciler_ResourceDelete(t *testing.T) {
 				AsyncOperation: &operationv1.AsyncOperation{Id: opID, State: s, FailureReason: "nope"},
 			}, nil,
 		)
+	}
+	getReturns := func(s tcloudresourcev1.ResourceState) fakeserver.NewOption {
+		return fakeserver.OnGetServiceAccountReturn(&tcloudservicev1.GetServiceAccountResponse{
+			ServiceAccount: &tcloudidentityv1.ServiceAccount{Id: saID, ResourceVersion: "rv-2", State: s},
+		}, nil)
 	}
 
 	cases := []struct {
@@ -96,8 +102,7 @@ func TestReconciler_ResourceDelete(t *testing.T) {
 			expStalled: true,
 		},
 
-		// An earlier delete, or a create or update that is still running, decides
-		// what happens, so no new delete is sent.
+		// An earlier delete decides what happens, so no new delete is sent.
 		{
 			name:    "already deleted, so it's done",
 			cr:      withStatus(cloudcommon.ResourceStateDeleted, opID, nil),
@@ -130,17 +135,31 @@ func TestReconciler_ResourceDelete(t *testing.T) {
 			expStatus:  resourceStatus(cloudcommon.ResourceStateDeleteFailed, opID),
 			expStalled: true,
 		},
+
+		// The state in Temporal Cloud decides whether the delete request can proceed.
 		{
-			name:    "still activating, so it waits before deleting",
-			cr:      withStatus(cloudcommon.ResourceStateActivating, "", nil),
-			expKind: kindRequeue,
-			expErr:  "to finish Activating before deleting",
+			name:       "still activating in temporal cloud, so it waits before deleting",
+			cr:         withStatus(cloudcommon.ResourceStateActivating, "", nil),
+			serverOpts: []fakeserver.NewOption{getReturns(tcloudresourcev1.ResourceState_RESOURCE_STATE_ACTIVATING)},
+			expKind:    kindRequeue,
+			expErr:     "to finish Activating before deleting",
 		},
 		{
-			name:    "still updating, so it waits before deleting",
-			cr:      withStatus(cloudcommon.ResourceStateUpdating, "", nil),
-			expKind: kindRequeue,
-			expErr:  "to finish Updating before deleting",
+			name:       "still updating in temporal cloud, so it waits and saves the state",
+			cr:         active,
+			serverOpts: []fakeserver.NewOption{getReturns(tcloudresourcev1.ResourceState_RESOURCE_STATE_UPDATING)},
+			expKind:    kindRequeue,
+			expErr:     "to finish Updating before deleting",
+			expStatus:  resourceStatus(cloudcommon.ResourceStateUpdating, ""),
+		},
+		{
+			name:       "status still says activating but temporal cloud says active, so the delete is sent",
+			cr:         withStatus(cloudcommon.ResourceStateActivating, "", nil),
+			serverOpts: []fakeserver.NewOption{getReturns(tcloudresourcev1.ResourceState_RESOURCE_STATE_ACTIVE)},
+			expKind:    kindRequeue,
+			expErr:     "deleting tcloud service account sa-1 (async operation op-delete)",
+			expDelete:  true,
+			expStatus:  resourceStatus(cloudcommon.ResourceStateDeleting, opID),
 		},
 
 		// Sending the delete.

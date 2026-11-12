@@ -133,17 +133,6 @@ func checkPreviousDelete(
 			cr.Status.Resource.State = cloudcommon.ResourceStateDeleteFailed
 		}
 		return true, err
-	case resourceState == cloudcommon.ResourceStateActivating,
-		resourceState == cloudcommon.ResourceStateUpdating:
-		// A create or update is still in flight, and Temporal Cloud rejects a
-		// delete until the service account is Active. Check again later.
-		return true, requeue.NeededAfter(
-			fmt.Errorf(
-				"waiting for tcloud service account %s to finish %s before deleting",
-				resourceID, resourceState,
-			),
-			requeue.DefaultRequeueAfterDuration,
-		)
 	}
 	return false, nil
 }
@@ -158,7 +147,7 @@ func deleteServiceAccount(
 	cr := latest.CR().(*tcloudv1alpha1.ServiceAccount)
 	resourceID := latest.ResourceID()
 
-	// Read the service account so the delete uses the current resource version.
+	// Read the service account for its current state and resource version.
 	getResp, err := tcc.GetServiceAccount(ctx, &tcloudservicev1.GetServiceAccountRequest{
 		ServiceAccountId: resourceID,
 	})
@@ -167,6 +156,21 @@ func deleteServiceAccount(
 	}
 	if err != nil {
 		return fmt.Errorf("failed getting tcloud service account %s: %w", resourceID, err)
+	}
+
+	var state cloudcommon.ResourceState
+	state.FromProto(getResp.GetServiceAccount().GetState())
+	if state == cloudcommon.ResourceStateActivating || state == cloudcommon.ResourceStateUpdating {
+		// A create or update is still in flight, wait till the service account is Active again
+		// for the delete request to be accepted in Temporal Cloud.
+		cr.Status.Resource.State = state
+		return requeue.NeededAfter(
+			fmt.Errorf(
+				"waiting for tcloud service account %s to finish %s before deleting",
+				resourceID, state,
+			),
+			requeue.DefaultRequeueAfterDuration,
+		)
 	}
 
 	resp, err := tcc.DeleteServiceAccount(ctx, &tcloudservicev1.DeleteServiceAccountRequest{
