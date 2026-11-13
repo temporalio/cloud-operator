@@ -67,8 +67,8 @@ spec:
                 type: boolean
               displayName:
                 description: |-
-                  DisplayName is the name of the API Key in Temporal Cloud. It is mutable
-                  and does not have to be unique.
+                  DisplayName is the mutable name of the API Key in Temporal Cloud.
+                  It does not have to be unique.
                   Maps to Temporal Cloud proto `ApiKeySpec.display_name`.
                 minLength: 1
                 type: string

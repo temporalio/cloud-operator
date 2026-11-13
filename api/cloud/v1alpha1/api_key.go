@@ -21,8 +21,7 @@ import (
 // +kubebuilder:printcolumn:name="Expiry",type=date,JSONPath=`.spec.expiryTime`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 type APIKey struct {
-	metav1.TypeMeta `json:",inline"`
-	// +optional
+	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// Spec defines the desired state of the API Key.
@@ -67,8 +66,8 @@ func (k *APIKey) FromProto(in *tcloudidentityv1.ApiKey) *APIKey {
 // +kubebuilder:validation:XValidation:rule="self.owner == oldSelf.owner",message="owner cannot be changed after creation",fieldPath=".owner"
 // +kubebuilder:validation:XValidation:rule="has(self.token) == has(oldSelf.token) && (!has(self.token) || self.token == oldSelf.token)",message="token cannot be added, changed or removed after creation",fieldPath=".token"
 type APIKeySpec struct {
-	// DisplayName is the name of the API Key in Temporal Cloud. It is mutable
-	// and does not have to be unique.
+	// DisplayName is the mutable name of the API Key in Temporal Cloud.
+	// It does not have to be unique.
 	// Maps to Temporal Cloud proto `ApiKeySpec.display_name`.
 	// +required
 	// +kubebuilder:validation:MinLength=1
@@ -128,11 +127,9 @@ func (s APIKeySpec) ToProto(
 	referrerNamespace string,
 	refs APIKeyReferences,
 ) *tcloudidentityv1.ApiKeySpec {
-	var ownerID string
-	if ref := s.Owner.ServiceAccount.Ref; ref != nil {
-		ownerID, _ = refs.ServiceAccountID(*ref, referrerNamespace)
-	} else {
-		ownerID = s.Owner.ServiceAccount.ID
+	ownerID := s.Owner.ServiceAccount.ID
+	if ownerID == "" && s.Owner.ServiceAccount.Ref != nil {
+		ownerID, _ = refs.ServiceAccountID(*s.Owner.ServiceAccount.Ref, referrerNamespace)
 	}
 
 	out := &tcloudidentityv1.ApiKeySpec{
