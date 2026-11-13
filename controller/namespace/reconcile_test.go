@@ -12,6 +12,8 @@ import (
 	"github.com/temporalio/cloud-operator/controller/namespace"
 	"github.com/temporalio/cloud-operator/pkg/testutil/kube"
 	fakeserver "github.com/temporalio/cloud-operator/pkg/testutil/temporal/cloud/fake/server"
+	ctrlerrors "github.com/temporalio/kube-temporal/pkg/controller/errors"
+	"github.com/temporalio/kube-temporal/pkg/controller/requeue"
 	kttestutilcompare "github.com/temporalio/kube-temporal/pkg/testutil/compare"
 	kttestutilkube "github.com/temporalio/kube-temporal/pkg/testutil/kube"
 	"github.com/temporalio/kube-temporal/pkg/types"
@@ -247,8 +249,6 @@ func TestReconciler_ResourceLatest(t *testing.T) {
 			res: namespace.NewResource(tns),
 		},
 		{
-			// The resource-id annotation alone doesn't make the CR linked,
-			// so it is still looked up by name.
 			name: "resource-id annotation without status lists by cr name",
 			listAsserter: func(tt *testing.T) fakeserver.GetNamespacesAssertFunc {
 				assert := assert.New(tt)
@@ -265,7 +265,7 @@ func TestReconciler_ResourceLatest(t *testing.T) {
 			}()),
 		},
 		{
-			name: "latest is mutated from namespace found by name",
+			name: "latest cr is mutated from namespace found by name",
 			serverOpts: []fakeserver.NewOption{
 				fakeserver.OnGetNamespacesReturn(
 					&tcloudservicev1.GetNamespacesResponse{
@@ -285,7 +285,7 @@ func TestReconciler_ResourceLatest(t *testing.T) {
 			}(),
 		},
 		{
-			name: "latest is cleared if not found by name",
+			name: "The latest cr is cleared if it's not found by name",
 			serverOpts: []fakeserver.NewOption{
 				fakeserver.OnGetNamespacesReturn(
 					&tcloudservicev1.GetNamespacesResponse{}, nil,
@@ -391,4 +391,140 @@ func TestReconciler_ResourceSync_CreatesWithResourceIDAnnotation(t *testing.T) {
 	_, err = r.ResourceSync(context.TODO(), desired, latest)
 	require.ErrorContains(err, "failed creating tcloud namespace")
 	require.ErrorContains(err, "Unimplemented")
+}
+
+func TestReconciler_ResourceLatest_Adopt(t *testing.T) {
+	t.Run("found by resource-id", func(tt *testing.T) {
+		require := require.New(tt)
+		var gotID string
+
+		latest, err := adoptLatest(tt, func(
+			_ context.Context, req *tcloudservicev1.GetNamespaceRequest,
+		) (*tcloudservicev1.GetNamespaceResponse, error) {
+			gotID = req.GetNamespace()
+			return &tcloudservicev1.GetNamespaceResponse{
+				Namespace: &tcloudnamespacev1.Namespace{
+					Namespace: "my-ns.acct1",
+					Spec:      &tcloudnamespacev1.NamespaceSpec{Name: "my-ns"},
+				},
+			}, nil
+		})
+
+		require.NoError(err)
+		require.Equal("my-ns.acct1", gotID)
+		require.Equal("my-ns.acct1", latest.CR().(*tcloudv1alpha1.Namespace).Status.Resource.ID)
+	})
+
+	t.Run("resource-id not found", func(tt *testing.T) {
+		require := require.New(tt)
+		var gotID string
+
+		_, err := adoptLatest(tt, func(
+			_ context.Context, req *tcloudservicev1.GetNamespaceRequest,
+		) (*tcloudservicev1.GetNamespaceResponse, error) {
+			gotID = req.GetNamespace()
+			return nil, status.Error(codes.NotFound, "namespace not found")
+		})
+
+		require.Equal("my-ns.acct1", gotID)
+		require.ErrorContains(err, `no tcloud namespace with ID "my-ns.acct1" to adopt`)
+	})
+}
+
+// adoptLatest calls ResourceLatest for a CR named my-ns that asks to adopt
+// my-ns.acct1
+func adoptLatest(
+	t *testing.T,
+	getNamespace fakeserver.GetNamespaceFunc,
+) (types.Resource, error) {
+	t.Helper()
+	require := require.New(t)
+
+	srv, err := fakeserver.New(fakeserver.WithGetNamespace(getNamespace))
+	require.NoError(err)
+	t.Cleanup(srv.Start())
+	tcc, err := srv.Client()
+	require.NoError(err)
+	r := namespace.NewReconciler(namespace.WithDefaultCloudClient(*tcc))
+
+	cr := &tcloudv1alpha1.Namespace{}
+	cr.Name = "my-ns"
+	cr.Annotations = map[string]string{
+		cloudcommon.AnnotationKeyAdoptionPolicy: "adopt",
+		cloudcommon.AnnotationKeyResourceID:     "my-ns.acct1",
+	}
+
+	return r.ResourceLatest(context.TODO(), namespace.NewResource(cr))
+}
+
+func TestReconciler_ResourceSync_NamespaceGone(t *testing.T) {
+	t.Run("adopted namespace is not recreated", func(tt *testing.T) {
+		require := require.New(tt)
+
+		got, err := syncGoneNamespace(tt, map[string]string{
+			cloudcommon.AnnotationKeyAdoptedOn: "2026-11-03T12:00:00Z",
+		})
+
+		var terminal *ctrlerrors.TerminalError
+		require.ErrorAs(err, &terminal)
+		require.ErrorContains(err, "no longer exists")
+		require.Equal("my-ns.acct1", got.CR().(*tcloudv1alpha1.Namespace).Status.Resource.ID)
+	})
+
+	t.Run("created namespace is recreated", func(tt *testing.T) {
+		require := require.New(tt)
+
+		_, err := syncGoneNamespace(tt, nil)
+
+		// The fake server has no CreateNamespace hook, so Unimplemented shows
+		// that the create was attempted.
+		require.ErrorContains(err, "failed creating tcloud namespace")
+		require.ErrorContains(err, "Unimplemented")
+	})
+
+	t.Run("partly adopted namespace waits", func(tt *testing.T) {
+		require := require.New(tt)
+
+		// Linked by an adoption whose adopted-on was never saved.
+		got, err := syncGoneNamespace(tt, map[string]string{
+			cloudcommon.AnnotationKeyAdoptionPolicy: "adopt",
+			cloudcommon.AnnotationKeyResourceID:     "my-ns.acct1",
+		})
+
+		var requeueAfter *requeue.RequeueNeededAfter
+		require.ErrorAs(err, &requeueAfter)
+		require.ErrorContains(err, `no tcloud namespace with ID "my-ns.acct1" to adopt`)
+		require.Equal("my-ns.acct1", got.CR().(*tcloudv1alpha1.Namespace).Status.Resource.ID)
+	})
+}
+
+// syncGoneNamespace calls ResourceSync for a CR named my-ns, linked to
+// my-ns.acct1 and carrying the supplied annotations, whose Namespace is gone
+// from Temporal Cloud.
+func syncGoneNamespace(t *testing.T, annotations map[string]string) (types.Resource, error) {
+	t.Helper()
+	require := require.New(t)
+
+	srv, err := fakeserver.New()
+	require.NoError(err)
+	t.Cleanup(srv.Start())
+	tcc, err := srv.Client()
+	require.NoError(err)
+	r := namespace.NewReconciler(namespace.WithDefaultCloudClient(*tcc))
+
+	cr := &tcloudv1alpha1.Namespace{}
+	cr.Name = "my-ns"
+	cr.Annotations = annotations
+	cr.Spec.Replicas = []tcloudv1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}}
+	cr.Spec.RetentionDays = 30
+	cr.Status.Resource.ID = "my-ns.acct1"
+	desired := namespace.NewResource(cr)
+
+	// ResourceLatest clears the spec and status when the Namespace is not found.
+	gone := cr.DeepCopy()
+	gone.Spec = tcloudv1alpha1.NamespaceSpec{}
+	gone.Status = tcloudv1alpha1.NamespaceStatus{}
+	latest := namespace.NewResource(gone)
+
+	return r.ResourceSync(context.TODO(), desired, latest)
 }
