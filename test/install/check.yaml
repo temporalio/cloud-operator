@@ -28,6 +28,11 @@ tests:
    require:
      len: 1
 
+ - name: ensure-apikey-crd
+   kube.get: crds/apikeys.cloud.temporal.io
+   require:
+     len: 1
+
  - name: ensure-serviceaccount
    kube.get: serviceaccounts/temporal-cloud-operator
    require:
