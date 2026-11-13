@@ -18,7 +18,7 @@ import (
 
 	cloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
-	"github.com/temporalio/cloud-operator/controller/common"
+	"github.com/temporalio/cloud-operator/pkg/temporal/cloud"
 	"github.com/temporalio/cloud-operator/pkg/types"
 )
 
@@ -124,8 +124,8 @@ func checkPreviousDelete(
 			),
 		)
 	case resourceState == cloudcommon.ResourceStateDeleting && asyncOpID != "":
-		err := common.CheckAsyncOperation(ctx, tcc, asyncOpID)
-		if errors.Is(err, common.ErrAsyncOperationFailed) {
+		err := cloud.CheckAsyncOperation(ctx, tcc, asyncOpID)
+		if errors.Is(err, cloud.ErrAsyncOperationFailed) {
 			err = fmt.Errorf("deleting tcloud service account %s failed: %w", resourceID, err)
 			condition.SetStalled(
 				latest, metav1.ConditionTrue, err.Error(), cloudcommon.ReasonResourceDeleteFailed,

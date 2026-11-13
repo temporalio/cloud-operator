@@ -15,7 +15,7 @@ import (
 
 	cloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
-	"github.com/temporalio/cloud-operator/controller/common"
+	"github.com/temporalio/cloud-operator/pkg/resource/reference"
 	"github.com/temporalio/cloud-operator/pkg/types"
 )
 
@@ -99,8 +99,8 @@ func (r *Reconciler) resolveReferences(
 		}
 		seen[key] = true
 
-		id, err := common.ResolveNamespaceID(ctx, r.KubeReader(), cr.Namespace, nr.refOrID)
-		if errors.Is(err, common.ErrReferenceNotReady) {
+		id, err := reference.ResolveNamespaceID(ctx, r.KubeReader(), cr.Namespace, nr.refOrID)
+		if errors.Is(err, reference.ErrNotReady) {
 			continue
 		}
 		if err != nil {

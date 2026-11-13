@@ -13,7 +13,8 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
-	"github.com/temporalio/cloud-operator/controller/common"
+	"github.com/temporalio/cloud-operator/pkg/resource/reference"
+	"github.com/temporalio/cloud-operator/pkg/temporal/cloud"
 	"github.com/temporalio/cloud-operator/pkg/types"
 )
 
@@ -75,7 +76,7 @@ func createServiceAccount(
 		Spec: desired.Spec.ToProto(desired.Namespace, refs),
 	})
 	if err != nil {
-		return common.CloudCallError("creating tcloud service account", err)
+		return cloud.CallError("creating tcloud service account", err)
 	}
 
 	updated.Status.Resource.ID = resp.GetServiceAccountId()
@@ -105,7 +106,7 @@ func updateServiceAccount(
 	want := desired.Spec.ToProto(desired.Namespace, refs)
 
 	resourceID := latest.Status.Resource.ID
-	err := common.RequireActive("service account", resourceID, latest.Status.Resource.State)
+	err := cloud.RequireActive("service account", resourceID, latest.Status.Resource.State)
 	if err != nil {
 		return err
 	}
@@ -141,7 +142,7 @@ func updateServiceAccount(
 		ResourceVersion:  latest.Status.Resource.Version,
 	})
 	if err != nil {
-		return common.CloudCallError("updating tcloud service account", err)
+		return cloud.CallError("updating tcloud service account", err)
 	}
 	return requeue.NeededAfter(
 		fmt.Errorf(
@@ -158,7 +159,7 @@ func checkReferences(
 	cr *tcloudv1alpha1.ServiceAccount,
 	refs tcloudv1alpha1.ServiceAccountReferences,
 ) error {
-	check := common.NewReferenceCheck(cr.Namespace)
+	check := reference.NewCheck(cr.Namespace)
 	for _, nr := range namespaceRefs(cr.Spec) {
 		id, _ := refs.NamespaceID(*nr.refOrID.Ref, cr.Namespace)
 		check.Pending(nr.path, nr.refOrID, id)
