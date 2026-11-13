@@ -2,7 +2,6 @@ package namespace_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"testing"
 
@@ -249,8 +248,6 @@ func TestReconciler_ResourceLatest(t *testing.T) {
 			res: namespace.NewResource(tns),
 		},
 		{
-			// The resource-id annotation alone doesn't make the CR linked,
-			// so it is still looked up by name.
 			name: "resource-id annotation without status lists by cr name",
 			listAsserter: func(tt *testing.T) fakeserver.GetNamespacesAssertFunc {
 				assert := assert.New(tt)
@@ -267,7 +264,7 @@ func TestReconciler_ResourceLatest(t *testing.T) {
 			}()),
 		},
 		{
-			name: "latest is mutated from namespace found by name",
+			name: "latest cr is mutated from namespace found by name",
 			serverOpts: []fakeserver.NewOption{
 				fakeserver.OnGetNamespacesReturn(
 					&tcloudservicev1.GetNamespacesResponse{
@@ -287,7 +284,7 @@ func TestReconciler_ResourceLatest(t *testing.T) {
 			}(),
 		},
 		{
-			name: "latest is cleared if not found by name",
+			name: "The latest cr is cleared if it's not found by name",
 			serverOpts: []fakeserver.NewOption{
 				fakeserver.OnGetNamespacesReturn(
 					&tcloudservicev1.GetNamespacesResponse{}, nil,
@@ -395,72 +392,134 @@ func TestReconciler_ResourceSync_CreatesWithResourceIDAnnotation(t *testing.T) {
 	require.ErrorContains(err, "Unimplemented")
 }
 
-func TestReconciler_ResourceLatest_AdoptLooksUpByResourceID(t *testing.T) {
-	require := require.New(t)
-	var gotID string
-
-	srv, err := fakeserver.New(
-		fakeserver.WithGetNamespace(func(
-			_ context.Context, req *tcloudservicev1.GetNamespaceRequest,
-		) (*tcloudservicev1.GetNamespaceResponse, error) {
-			gotID = req.GetNamespace()
-			return &tcloudservicev1.GetNamespaceResponse{
-				Namespace: &tcloudnamespacev1.Namespace{
-					Namespace: "my-ns.acct1",
-					Spec:      &tcloudnamespacev1.NamespaceSpec{Name: "my-ns"},
-				},
-			}, nil
-		}),
-	)
-
-	require.NoError(err)
-	t.Cleanup(srv.Start())
-	tcc, err := srv.Client()
-	require.NoError(err)
-	r := namespace.NewReconciler(namespace.WithDefaultCloudClient(*tcc))
-
-	cr := &tcloudv1alpha1.Namespace{}
-	cr.Name = "my-ns"
-	cr.Annotations = map[string]string{
-		cloudcommon.AnnotationKeyAdoptionPolicy: "adopt",
-		cloudcommon.AnnotationKeyResourceID:     "my-ns.acct1",
+func TestReconciler_ResourceLatest_Adopt(t *testing.T) {
+	cases := []struct {
+		name   string
+		getErr error
+		expErr string
+	}{
+		{
+			name: "found by resource-id",
+		},
+		{
+			name:   "resource-id not found",
+			getErr: status.Error(codes.NotFound, "namespace not found"),
+			expErr: `no tcloud namespace with ID "my-ns.acct1" to adopt`,
+		},
 	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(tt *testing.T) {
+			require := require.New(tt)
+			var gotID string
 
-	latest, err := r.ResourceLatest(context.TODO(), namespace.NewResource(cr))
+			srv, err := fakeserver.New(
+				fakeserver.WithGetNamespace(func(
+					_ context.Context, req *tcloudservicev1.GetNamespaceRequest,
+				) (*tcloudservicev1.GetNamespaceResponse, error) {
+					gotID = req.GetNamespace()
+					if tc.getErr != nil {
+						return nil, tc.getErr
+					}
+					return &tcloudservicev1.GetNamespaceResponse{
+						Namespace: &tcloudnamespacev1.Namespace{
+							Namespace: "my-ns.acct1",
+							Spec:      &tcloudnamespacev1.NamespaceSpec{Name: "my-ns"},
+						},
+					}, nil
+				}),
+			)
+			require.NoError(err)
+			tt.Cleanup(srv.Start())
+			tcc, err := srv.Client()
+			require.NoError(err)
+			r := namespace.NewReconciler(namespace.WithDefaultCloudClient(*tcc))
 
-	require.NoError(err)
-	require.Equal("my-ns.acct1", gotID)
-	require.Equal("my-ns.acct1", latest.CR().(*tcloudv1alpha1.Namespace).Status.Resource.ID)
+			cr := &tcloudv1alpha1.Namespace{}
+			cr.Name = "my-ns"
+			cr.Annotations = map[string]string{
+				cloudcommon.AnnotationKeyAdoptionPolicy: "adopt",
+				cloudcommon.AnnotationKeyResourceID:     "my-ns.acct1",
+			}
+
+			latest, err := r.ResourceLatest(context.TODO(), namespace.NewResource(cr))
+			require.Equal("my-ns.acct1", gotID)
+			if tc.expErr != "" {
+				require.ErrorContains(err, tc.expErr)
+				return
+			}
+			require.NoError(err)
+			require.Equal("my-ns.acct1", latest.CR().(*tcloudv1alpha1.Namespace).Status.Resource.ID)
+		})
+	}
 }
 
-func TestReconciler_ResourceSync_DoesNotRecreateMissingAdoptedNamespace(t *testing.T) {
-	require := require.New(t)
+// missingNamespaceOutcome is what ResourceSync is expected to do when a linked
+// Namespace is gone from Temporal Cloud.
+type missingNamespaceOutcome int
 
-	srv, err := fakeserver.New()
-	require.NoError(err)
-	t.Cleanup(srv.Start())
-	tcc, err := srv.Client()
-	require.NoError(err)
-	r := namespace.NewReconciler(namespace.WithDefaultCloudClient(*tcc))
+const (
+	// stalls: a terminal error, nothing is created, the old ID is kept in status.
+	stalls missingNamespaceOutcome = iota
+	// recreates: CreateNamespace is called.
+	recreates
+)
 
-	cr := &tcloudv1alpha1.Namespace{}
-	cr.Name = "my-ns"
-	cr.Annotations = map[string]string{
-		cloudcommon.AnnotationKeyAdoptedOn: "2026-11-03T12:00:00Z",
+func TestReconciler_ResourceSync_NamespaceGone(t *testing.T) {
+	cases := []struct {
+		name    string
+		adopted bool
+		exp     missingNamespaceOutcome
+	}{
+		{
+			name:    "adopted namespace is not recreated",
+			adopted: true,
+			exp:     stalls,
+		},
+		{
+			name: "created namespace is recreated",
+			exp:  recreates,
+		},
 	}
-	cr.Status.Resource.ID = "my-ns.acct1"
-	desired := namespace.NewResource(cr)
+	for _, tc := range cases {
+		t.Run(tc.name, func(tt *testing.T) {
+			require := require.New(tt)
+			srv, err := fakeserver.New()
+			require.NoError(err)
+			tt.Cleanup(srv.Start())
+			tcc, err := srv.Client()
+			require.NoError(err)
+			r := namespace.NewReconciler(namespace.WithDefaultCloudClient(*tcc))
 
-	// latest as ResourceLatest leaves it when GetNamespace returns NotFound.
-	gone := cr.DeepCopy()
-	gone.Spec = tcloudv1alpha1.NamespaceSpec{}
-	gone.Status = tcloudv1alpha1.NamespaceStatus{}
-	latest := namespace.NewResource(gone)
+			cr := &tcloudv1alpha1.Namespace{}
+			cr.Name = "my-ns"
+			cr.Spec.Replicas = []tcloudv1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}}
+			cr.Spec.RetentionDays = 30
+			cr.Status.Resource.ID = "my-ns.acct1"
+			if tc.adopted {
+				cr.Annotations = map[string]string{
+					cloudcommon.AnnotationKeyAdoptedOn: "2026-11-03T12:00:00Z",
+				}
+			}
+			desired := namespace.NewResource(cr)
 
-	got, err := r.ResourceSync(context.TODO(), desired, latest)
+			// ResourceLatest clears the spec and status when the Namespace is not found.
+			gone := cr.DeepCopy()
+			gone.Spec = tcloudv1alpha1.NamespaceSpec{}
+			gone.Status = tcloudv1alpha1.NamespaceStatus{}
+			latest := namespace.NewResource(gone)
 
-	var terminal *ctrlerrors.TerminalError
-	require.True(errors.As(err, &terminal), "expected a terminal error, got %v", err)
-	require.ErrorContains(err, "no longer exists")
-	require.Equal("my-ns.acct1", got.CR().(*tcloudv1alpha1.Namespace).Status.Resource.ID)
+			got, err := r.ResourceSync(context.TODO(), desired, latest)
+
+			switch tc.exp {
+			case stalls:
+				var terminal *ctrlerrors.TerminalError
+				require.ErrorAs(err, &terminal)
+				require.ErrorContains(err, "no longer exists")
+				require.Equal("my-ns.acct1", got.CR().(*tcloudv1alpha1.Namespace).Status.Resource.ID)
+			case recreates:
+				require.ErrorContains(err, "failed creating tcloud namespace")
+				require.ErrorContains(err, "Unimplemented")
+			}
+		})
+	}
 }
