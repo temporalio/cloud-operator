@@ -8,6 +8,7 @@ rules:
   - cloud.temporal.io
   resources:
   - namespaces
+  - serviceaccounts
   verbs:
   - create
   - delete
@@ -20,12 +21,14 @@ rules:
   - cloud.temporal.io
   resources:
   - namespaces/finalizers
+  - serviceaccounts/finalizers
   verbs:
   - update
 - apiGroups:
   - cloud.temporal.io
   resources:
   - namespaces/status
+  - serviceaccounts/status
   verbs:
   - get
   - patch
