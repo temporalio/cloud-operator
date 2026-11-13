@@ -31,18 +31,20 @@ RULE: Add a short comment when code looks odd or unnecessary but is needed. Say
 what requires it, such as a Temporal Cloud API rule, and what would break
 without it. Skip the comment when the code already makes the reason clear.
 
-Bad:
+- BAD: "Requeue if the namespace is not active."
+- GOOD: "Temporal Cloud rejects a delete until the Namespace is Active, so
+  check again later."
 
-```go
-// Requeue if the namespace is not active.
-```
+RULE: Avoid the following phrases and instead use the simpler, more
+straightforward alternatives:
 
-Good:
-
-```go
-// Temporal Cloud rejects a delete until the Namespace is Active, so check
-// again later.
-```
+- Avoid "<subject> carries the <target>".
+  - BAD: "Annotation carries the resource identifier"
+  - GOOD: "`cloud.temporal.io/resource-id` contains the resource identifier".
+- Avoid "the verdict stays with the prior decision".
+  - BAD: "If the resource was adopted, the verdict stays with the prior
+    decision".
+  - GOOD: "If the resource was adopted, simply return nil".
 
 RULE: Write prose comments as plain sentences with a subject. Do not use em
 dashes, colons, semicolons, or `**Header**: text` labels. Use backticks only to
