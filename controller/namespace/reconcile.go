@@ -127,8 +127,9 @@ func (r *Reconciler) ResourceLatest(
 	// otherwise the cloud.temporal.io/resource-id annotation.
 	resourceID := latest.ResourceID()
 
-	// current is the CR as read, so it says whether an earlier reconcile
-	// linked it and whether it asks to be adopted.
+	// current is the CR as read from Kubernetes, so it tells us whether an
+	// earlier reconcile linked it (status.resource.id is set)
+	// and whether it has the adoption-policy: adopt annotation.
 	cur := current.(types.Resource)
 
 	var tns *tcloudnamespacev1.Namespace
@@ -228,9 +229,16 @@ func (r *Reconciler) syncNamespace(
 		exit(err)
 	}()
 
-	// Adoption comes before the create branch, so a CR asking to adopt an
-	// existing Namespace never creates one.
 	if wantsAdoption(desired) {
+		// The Namespace may have disappeared after an earlier reconcile saved its ID.
+		// Retry without creating a new one.
+		if latest.ResourceStatus().ID == "" {
+			err = requeue.NeededAfter(
+				fmt.Errorf("no tcloud namespace with ID %q to adopt", desired.ResourceID()),
+				requeue.DefaultRequeueAfterDuration,
+			)
+			return unchangedResource(desired), err
+		}
 		var adopted kttypes.Resource
 		adopted, err = adoptNamespace(desired, latest, time.Now())
 		return adopted, err
@@ -257,7 +265,7 @@ func (r *Reconciler) syncNamespace(
 					"delete this CR to stop managing it",
 				ctrlerrors.ErrResourceSync, desired.ResourceID(),
 			))
-			return resetLatestStatus(desired, latest), err
+			return unchangedResource(desired), err
 		}
 
 		cr := desired.CR()
@@ -435,7 +443,8 @@ func cloudCallError(action string, err error) error {
 	return wrapped
 }
 
-// getNamespaceByID returns the Temporal Cloud Namespace with the supplied ID
+// getNamespaceByID returns the Temporal Cloud Namespace with the supplied ID,
+// or nil if Temporal Cloud reports it NotFound.
 func getNamespaceByID(
 	ctx context.Context,
 	tcc tcloudservicev1.CloudServiceClient,

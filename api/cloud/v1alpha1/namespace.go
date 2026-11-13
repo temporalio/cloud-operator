@@ -999,7 +999,7 @@ type NamespaceStatus struct {
 	// Resource contains common information about the Temporal Cloud resource
 	// that this CR represents.
 	// +optional
-	Resource cloudcommon.ResourceStatus `json:"resource,omitempty"`
+	Resource cloudcommon.ResourceStatus `json:"resource,omitzero"`
 	// References is an optional field containing the Temporal Cloud resource
 	// IDs for any related resources.
 	References NamespaceReferences `json:"references,omitempty"`

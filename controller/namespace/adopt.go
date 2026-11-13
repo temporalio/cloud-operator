@@ -6,7 +6,7 @@ import (
 	"time"
 
 	ctrlerrors "github.com/temporalio/kube-temporal/pkg/controller/errors"
-	"github.com/temporalio/kube-temporal/pkg/controller/requeue"
+	"github.com/temporalio/kube-temporal/pkg/kube/condition"
 	kttypes "github.com/temporalio/kube-temporal/pkg/types"
 
 	cloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
@@ -22,15 +22,9 @@ func adoptNamespace(
 	latest types.Resource,
 	now time.Time,
 ) (kttypes.Resource, error) {
-	if latest.ResourceStatus().ID == "" {
-		return resetLatestStatus(desired, latest), requeue.NeededAfter(
-			fmt.Errorf("no tcloud namespace with ID %q to adopt", desired.ResourceID()),
-			requeue.DefaultRequeueAfterDuration,
-		)
-	}
-	ok, reason := resourceCanBeAdopted(desired, latest)
+	ok, reason := resourceCanBeAdopted(latest)
 	if !ok {
-		return resetLatestStatus(desired, latest), ctrlerrors.NewTerminalError(
+		return unchangedResource(desired), ctrlerrors.NewTerminalError(
 			fmt.Errorf("%w: %s", ctrlerrors.ErrResourceSync, reason),
 		)
 	}
@@ -39,15 +33,12 @@ func adoptNamespace(
 	return adopted, nil
 }
 
-// resetLatestStatus prevents a failed adoption from saving the found Namespace's ID.
+// unchangedResource prevents a failed adoption from saving the found Namespace's ID.
 // It returns a copy of latest with the CR's original status, which
 // reconcileComplete saves even when reconciliation fails.
-func resetLatestStatus(desired, latest types.Resource) kttypes.Resource {
-	out := latest.DeepCopy()
-	outNS := out.CR().(*tcloudv1alpha1.Namespace)
-	desiredNS := desired.CR().(*tcloudv1alpha1.Namespace)
-	desiredNS.Status.Resource.DeepCopyInto(&outNS.Status.Resource)
-	outNS.Status.References = desiredNS.Status.References
+func unchangedResource(desired types.Resource) kttypes.Resource {
+	out := desired.DeepCopy()
+	condition.Clear(out)
 	return out
 }
 
@@ -60,12 +51,12 @@ func wantsAdoption(desired types.Resource) bool {
 
 // resourceCanBeAdopted reports whether the Namespace that ResourceLatest
 // found can be adopted.
-func resourceCanBeAdopted(desired, latest types.Resource) (bool, string) {
+func resourceCanBeAdopted(latest types.Resource) (bool, string) {
 	foundID := latest.ResourceStatus().ID
 
 	// A Namespace ID is "<name>.<account ID>", and names can't contain dots.
 	name, _, _ := strings.Cut(foundID, ".")
-	if crName := desired.CR().(*tcloudv1alpha1.Namespace).Name; name != crName {
+	if crName := latest.CR().(*tcloudv1alpha1.Namespace).Name; name != crName {
 		return false, fmt.Sprintf(
 			"can't adopt tcloud namespace %q: its name %q doesn't match the CR's name %q",
 			foundID, name, crName,

@@ -1,23 +1,22 @@
-package namespace
+package namespace_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	ctrlerrors "github.com/temporalio/kube-temporal/pkg/controller/errors"
-	"github.com/temporalio/kube-temporal/pkg/controller/requeue"
 
 	cloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
+	"github.com/temporalio/cloud-operator/controller/namespace"
 	"github.com/temporalio/cloud-operator/pkg/types"
 )
 
-var adoptTestTime = time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
-
-// newAdoptTestResources returns an unlinked adoption CR and a copy with the
+// adoptTestResources returns an unlinked adoption CR and a copy with the
 // given Cloud ID and state, as if ResourceLatest had found it.
-func newAdoptTestResources(
+func adoptTestResources(
 	foundID string,
 	state cloudcommon.ResourceState,
 ) (types.Resource, types.Resource) {
@@ -30,89 +29,66 @@ func newAdoptTestResources(
 	found := cr.DeepCopy()
 	found.Status.Resource.ID = foundID
 	found.Status.Resource.State = state
-	return NewResource(cr), NewResource(found)
+	return namespace.NewResource(cr), namespace.NewResource(found)
 }
 
-// adoptOutcome is what adoptNamespace is expected to do with a case.
-type adoptOutcome int
+// Adoption runs before ResourceSync needs a Temporal Cloud client, so these
+// tests use a reconciler without one.
+func TestReconciler_ResourceSync_Adopt(t *testing.T) {
+	t.Run("adopts an active namespace", func(tt *testing.T) {
+		require := require.New(tt)
+		desired, latest := adoptTestResources("my-ns.acct1", cloudcommon.ResourceStateActive)
+		latestNS := latest.CR().(*tcloudv1alpha1.Namespace)
+		latestNS.Spec.Replicas = []tcloudv1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}}
+		latestNS.Spec.RetentionDays = 30
 
-const (
-	// adopted: no error, the CR is linked to the found ID and has adopted-on.
-	adopted adoptOutcome = iota
-	// requeued: a requeue error, not linked, no adopted-on.
-	requeued
-	// refused: a terminal error, not linked, no adopted-on.
-	refused
-)
+		before := time.Now().Truncate(time.Second)
+		got, err := namespace.NewReconciler().ResourceSync(context.TODO(), desired, latest)
+		after := time.Now()
 
-func TestAdoptNamespace(t *testing.T) {
-	cases := []struct {
+		require.NoError(err)
+		gotRes := got.(types.Resource)
+		require.Equal("my-ns.acct1", gotRes.ResourceStatus().ID)
+		adoptedOn, err := gotRes.AdoptedOn()
+		require.NoError(err)
+		require.NotNil(adoptedOn)
+		require.False(adoptedOn.Before(before), "adopted-on %s is before %s", adoptedOn, before)
+		require.False(adoptedOn.After(after), "adopted-on %s is after %s", adoptedOn, after)
+		// Temporal Cloud's spec is copied into the CR.
+		require.Equal(latestNS.Spec, got.CR().(*tcloudv1alpha1.Namespace).Spec)
+	})
+
+	// Every refusal is a terminal error that leaves the CR unlinked.
+	refusals := []struct {
 		name    string
 		foundID string
 		state   cloudcommon.ResourceState
-		exp     adoptOutcome
 	}{
 		{
-			name:    "adopts an active namespace",
-			foundID: "my-ns.acct1",
-			state:   cloudcommon.ResourceStateActive,
-			exp:     adopted,
-		},
-		{
-			name: "nothing found requeues",
-			exp:  requeued,
-		},
-		{
-			name:    "name mismatch is terminal",
+			name:    "refuses a name mismatch",
 			foundID: "other-ns.acct1",
 			state:   cloudcommon.ResourceStateActive,
-			exp:     refused,
 		},
 		{
-			name:    "non-adoptable state is terminal",
+			name:    "refuses a non-adoptable state",
 			foundID: "my-ns.acct1",
 			state:   cloudcommon.ResourceStateDeleting,
-			exp:     refused,
 		},
 	}
-	for _, tc := range cases {
+	for _, tc := range refusals {
 		t.Run(tc.name, func(tt *testing.T) {
 			require := require.New(tt)
+			desired, latest := adoptTestResources(tc.foundID, tc.state)
 
-			desired, latest := newAdoptTestResources(tc.foundID, tc.state)
-			latestNS := latest.CR().(*tcloudv1alpha1.Namespace)
-			latestNS.Spec.Replicas = []tcloudv1alpha1.ReplicaSpec{{Region: "aws-us-east-1"}}
-			latestNS.Spec.RetentionDays = 30
+			got, err := namespace.NewReconciler().ResourceSync(context.TODO(), desired, latest)
 
-			got, err := adoptNamespace(desired, latest, adoptTestTime)
-
-			switch tc.exp {
-			case adopted:
-				require.NoError(err)
-			case requeued:
-				var requeueAfter *requeue.RequeueNeededAfter
-				require.ErrorAs(err, &requeueAfter)
-			case refused:
-				var terminal *ctrlerrors.TerminalError
-				require.ErrorAs(err, &terminal)
-			}
-
+			var terminal *ctrlerrors.TerminalError
+			require.ErrorAs(err, &terminal)
 			gotRes := got.(types.Resource)
-			adoptedOn, aoErr := gotRes.AdoptedOn()
-			require.NoError(aoErr)
-
-			if tc.exp != adopted {
-				// A refusal or requeue must not link the CR.
-				require.Empty(gotRes.ResourceStatus().ID)
-				require.Nil(adoptedOn)
-				return
-			}
-			require.Equal(tc.foundID, gotRes.ResourceStatus().ID)
-			require.NotNil(adoptedOn)
-			require.True(adoptTestTime.Equal(*adoptedOn), "adopted-on is %s", adoptedOn)
-			// tCloud's spec is copied into the CR.
-			gotNS := got.CR().(*tcloudv1alpha1.Namespace)
-			require.Equal(latestNS.Spec, gotNS.Spec)
+			require.Empty(gotRes.ResourceStatus().ID)
+			adoptedOn, err := gotRes.AdoptedOn()
+			require.NoError(err)
+			require.Nil(adoptedOn)
 		})
 	}
 }
