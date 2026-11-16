@@ -15,6 +15,9 @@ import (
 
 const (
 	ControllerName = "project"
+
+	// resourceKind names the Temporal Cloud resource in messages.
+	resourceKind = "project"
 )
 
 // New returns a new [controller.Controller] that handles

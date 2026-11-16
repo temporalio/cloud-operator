@@ -2,11 +2,8 @@ package serviceaccount
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"log/slog"
 
-	ctrlerrors "github.com/temporalio/kube-temporal/pkg/controller/errors"
 	ctrlreqlog "github.com/temporalio/kube-temporal/pkg/controller/request/log"
 	"github.com/temporalio/kube-temporal/pkg/controller/requeue"
 	"github.com/temporalio/kube-temporal/pkg/kube/condition"
@@ -18,7 +15,7 @@ import (
 
 	cloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
-	"github.com/temporalio/cloud-operator/pkg/temporal/cloud"
+	"github.com/temporalio/cloud-operator/pkg/reconciler/deletion"
 	"github.com/temporalio/cloud-operator/pkg/types"
 )
 
@@ -51,7 +48,7 @@ func (r *Reconciler) ResourceDelete(
 	}
 
 	var retain bool
-	if retain, err = checkDeletionPolicy(ctx, latest); err != nil || retain {
+	if retain, err = deletion.CheckPolicy(ctx, latest, resourceKind); err != nil || retain {
 		return latest, err
 	}
 
@@ -61,80 +58,16 @@ func (r *Reconciler) ResourceDelete(
 		return latest, err
 	}
 
-	var handled bool
-	if handled, err = checkPreviousDelete(ctx, tcc, latest); handled {
+	cr := latest.CR().(*tcloudv1alpha1.ServiceAccount)
+	var done bool
+	if done, err = deletion.CheckPrevious(
+		ctx, tcc, latest, &cr.Status.Resource, resourceKind,
+	); done {
 		return latest, err
 	}
 
 	err = deleteServiceAccount(ctx, tcc, latest)
 	return latest, err
-}
-
-// checkDeletionPolicy reports whether the deletion policy keeps the service
-// account in Temporal Cloud. An invalid policy marks the CR as stalled and
-// returns a requeue error.
-func checkDeletionPolicy(ctx context.Context, latest types.Resource) (bool, error) {
-	policy := latest.DeletionPolicy()
-	if err := policy.Validate(); err != nil {
-		// Never fall back to delete on an invalid value. Annotation edits
-		// don't trigger a reconcile, so requeue to pick up a corrected value.
-		msg := fmt.Sprintf(
-			"%s. Set the %s annotation to %q or %q",
-			err, cloudcommon.AnnotationKeyDeletionPolicy,
-			cloudcommon.DeletionPolicyRetain, cloudcommon.DeletionPolicyDelete,
-		)
-		condition.SetStalled(
-			latest, metav1.ConditionTrue, msg, cloudcommon.ReasonResourceDeleteFailed,
-		)
-		return false, requeue.NeededAfter(errors.New(msg), requeue.DefaultRequeueAfterDuration)
-	}
-	if policy == cloudcommon.DeletionPolicyRetain {
-		ctrlreqlog.FromContext(ctx).Info(
-			"retaining Temporal Cloud service account because of the retain deletion policy",
-			slog.String("service_account_id", latest.ResourceID()),
-			slog.String("deletion_policy", string(policy)),
-		)
-		return true, nil
-	}
-	return false, nil
-}
-
-// checkPreviousDelete reports whether the service account's state means no new
-// delete should be sent, and returns the result to use instead.
-func checkPreviousDelete(
-	ctx context.Context,
-	tcc tcloudservicev1.CloudServiceClient,
-	latest types.Resource,
-) (bool, error) {
-	cr := latest.CR().(*tcloudv1alpha1.ServiceAccount)
-	resourceID := latest.ResourceID()
-	resourceState := cr.Status.Resource.State
-	asyncOpID := cr.Status.Resource.AsyncOperationID
-
-	switch {
-	case resourceState == cloudcommon.ResourceStateDeleted:
-		return true, nil
-	case resourceState == cloudcommon.ResourceStateDeleteFailed:
-		// A previous delete failed. Don't send another one automatically.
-		return true, ctrlerrors.NewTerminalError(
-			fmt.Errorf(
-				"deleting Temporal Cloud service account %s previously failed "+
-					"(async operation %s); not retrying",
-				resourceID, asyncOpID,
-			),
-		)
-	case resourceState == cloudcommon.ResourceStateDeleting && asyncOpID != "":
-		err := cloud.CheckAsyncOperation(ctx, tcc, asyncOpID)
-		if errors.Is(err, cloud.ErrAsyncOperationFailed) {
-			err = fmt.Errorf("deleting tcloud service account %s failed: %w", resourceID, err)
-			condition.SetStalled(
-				latest, metav1.ConditionTrue, err.Error(), cloudcommon.ReasonResourceDeleteFailed,
-			)
-			cr.Status.Resource.State = cloudcommon.ResourceStateDeleteFailed
-		}
-		return true, err
-	}
-	return false, nil
 }
 
 // deleteServiceAccount deletes the service account in Temporal Cloud and saves
@@ -160,17 +93,8 @@ func deleteServiceAccount(
 
 	var state cloudcommon.ResourceState
 	state.FromProto(getResp.GetServiceAccount().GetState())
-	if state == cloudcommon.ResourceStateActivating || state == cloudcommon.ResourceStateUpdating {
-		// A create or update is still in flight, wait till the service account is Active again
-		// for the delete request to be accepted in Temporal Cloud.
-		cr.Status.Resource.State = state
-		return requeue.NeededAfter(
-			fmt.Errorf(
-				"waiting for tcloud service account %s to finish %s before deleting",
-				resourceID, state,
-			),
-			requeue.DefaultRequeueAfterDuration,
-		)
+	if err = deletion.CheckInFlight(&cr.Status.Resource, state, resourceKind, resourceID); err != nil {
+		return err
 	}
 
 	resp, err := tcc.DeleteServiceAccount(ctx, &tcloudservicev1.DeleteServiceAccountRequest{

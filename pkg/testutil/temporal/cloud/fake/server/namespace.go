@@ -4,6 +4,8 @@ import (
 	"context"
 
 	tcloudservicev1 "go.temporal.io/cloud-sdk/api/cloudservice/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type GetNamespaceFunc func(
@@ -105,6 +107,30 @@ func OnGetNamespacesReturn(
 			return resp, err
 		}
 		s.getNamespacesFunc = fn
+	}
+}
+
+// GetNamespacesPages returns a [GetNamespacesFunc] that serves the supplied
+// pages in order, the way Temporal Cloud pages results. A request with no page
+// token gets the first page, and a request with a page token gets the page
+// after the one whose NextPageToken it carries. Use it with
+// [WithGetNamespaces].
+func GetNamespacesPages(
+	pages ...*tcloudservicev1.GetNamespacesResponse,
+) GetNamespacesFunc {
+	return func(
+		_ context.Context, req *tcloudservicev1.GetNamespacesRequest,
+	) (*tcloudservicev1.GetNamespacesResponse, error) {
+		token := req.GetPageToken()
+		if token == "" {
+			return pages[0], nil
+		}
+		for i, page := range pages[:len(pages)-1] {
+			if page.GetNextPageToken() == token {
+				return pages[i+1], nil
+			}
+		}
+		return nil, status.Errorf(codes.InvalidArgument, "unknown page token %q", token)
 	}
 }
 
@@ -250,4 +276,27 @@ func (s fakeServer) UpdateNamespace(
 		return s.updateNamespaceFunc(ctx, req)
 	}
 	return s.UnimplementedCloudServiceServer.UpdateNamespace(ctx, req)
+}
+
+type UpdateNamespaceTagsFunc func(
+	context.Context,
+	*tcloudservicev1.UpdateNamespaceTagsRequest,
+) (*tcloudservicev1.UpdateNamespaceTagsResponse, error)
+
+// WithUpdateNamespaceTags sets the fake server's UpdateNamespaceTags function
+// override.
+func WithUpdateNamespaceTags(fn UpdateNamespaceTagsFunc) NewOption {
+	return func(s *fakeServer) {
+		s.updateNamespaceTagsFunc = fn
+	}
+}
+
+func (s fakeServer) UpdateNamespaceTags(
+	ctx context.Context,
+	req *tcloudservicev1.UpdateNamespaceTagsRequest,
+) (*tcloudservicev1.UpdateNamespaceTagsResponse, error) {
+	if s.updateNamespaceTagsFunc != nil {
+		return s.updateNamespaceTagsFunc(ctx, req)
+	}
+	return s.UnimplementedCloudServiceServer.UpdateNamespaceTags(ctx, req)
 }

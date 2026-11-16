@@ -13,6 +13,7 @@ import (
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 	"github.com/temporalio/cloud-operator/pkg/temporal/cloud"
 	"github.com/temporalio/cloud-operator/pkg/types"
+	"github.com/temporalio/cloud-operator/pkg/util/ptr"
 )
 
 // ResourceSync creates the Temporal Cloud project if it doesn't exist yet, and
@@ -91,7 +92,7 @@ func updateProject(
 	latest *tcloudv1alpha1.Project,
 ) error {
 	resourceID := latest.Status.Resource.ID
-	err := cloud.RequireActive("project", resourceID, latest.Status.Resource.State)
+	err := cloud.RequireActive(resourceKind, resourceID, latest.Status.Resource.State)
 	if err != nil {
 		return err
 	}
@@ -132,15 +133,6 @@ func updateProject(
 // Mirrors specWithoutProjectAndTags in the namespace controller.
 func normalizeSpec(spec *tcloudv1alpha1.ProjectSpec) *tcloudv1alpha1.ProjectSpec {
 	out := spec.DeepCopy()
-	out.Lifecycle = nilIfEmpty(out.Lifecycle)
+	out.Lifecycle = ptr.NilIfEmpty(out.Lifecycle)
 	return out
-}
-
-// nilIfEmpty returns nil if p points to a zero value, otherwise p.
-func nilIfEmpty[T any](p *T) *T {
-	var zero T
-	if p != nil && equality.Semantic.DeepEqual(*p, zero) {
-		return nil
-	}
-	return p
 }

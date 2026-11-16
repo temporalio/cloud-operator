@@ -106,7 +106,7 @@ func updateServiceAccount(
 	want := desired.Spec.ToProto(desired.Namespace, refs)
 
 	resourceID := latest.Status.Resource.ID
-	err := cloud.RequireActive("service account", resourceID, latest.Status.Resource.State)
+	err := cloud.RequireActive(resourceKind, resourceID, latest.Status.Resource.State)
 	if err != nil {
 		return err
 	}
