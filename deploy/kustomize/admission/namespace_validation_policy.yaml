@@ -17,7 +17,7 @@ spec:
     expression: >-
       !has(object.spec) ? [] :
       (has(object.spec.replicas) ? [] : ['spec.replicas']) +
-      (has(object.spec.retentionDays) ? [] : ['spec.retentionDays'])
+      (has(object.spec.retentionDays) && object.spec.retentionDays > 0 ? [] : ['spec.retentionDays'])
   validations:
   - expression: "size(variables.missingSpecFields) == 0"
     messageExpression: >-

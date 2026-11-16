@@ -18,21 +18,19 @@ spec:
   - name: resourceID
     expression: "object.?metadata.annotations['cloud.temporal.io/resource-id'].orValue('')"
   validations:
-  # No adoption annotation or if there is, it has to be either of the two values
+  # No adoption annotation or if there is, it has to be a supported value
   - expression: >-
       !variables.adoptionPolicy.hasValue() ||
-      variables.adoptionPolicy.value() in ['adopt', 'adopt-or-create']
+      variables.adoptionPolicy.value() in ['adopt']
     messageExpression: >-
       'metadata.annotations[cloud.temporal.io/adoption-policy]: Unsupported value: "' +
-      variables.adoptionPolicy.value() + '": supported values: "adopt", "adopt-or-create"'
+      variables.adoptionPolicy.value() + '": supported values: "adopt"'
     reason: Invalid
   # If adoption is requested, a resource ID must be set.
-  - expression: >-
-      !(variables.adoptionPolicy.orValue('') in ['adopt', 'adopt-or-create']) ||
-      variables.resourceID != ''
+  - expression: "!variables.adopt || variables.resourceID != ''"
     message: >-
       metadata.annotations[cloud.temporal.io/resource-id]: Required value when the
-      cloud.temporal.io/adoption-policy annotation is "adopt" or "adopt-or-create"
+      cloud.temporal.io/adoption-policy annotation is "adopt"
     reason: Invalid
   # A resource ID is only used for adoption.
   - expression: "variables.adoptionPolicy.hasValue() || variables.resourceID == ''"

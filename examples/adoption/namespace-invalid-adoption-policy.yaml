@@ -1,4 +1,4 @@
-# Fails: the adoption policy must be "adopt" or "adopt-or-create".
+# Fails: the adoption policy must be "adopt".
 apiVersion: cloud.temporal.io/v1alpha1
 kind: Namespace
 metadata:
