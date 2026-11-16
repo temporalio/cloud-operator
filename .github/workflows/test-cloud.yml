@@ -1,8 +1,6 @@
 name: test-cloud
 
 on:
-  schedule:
-    - cron: '5 11 * * *'
   workflow_dispatch:
 
 permissions:

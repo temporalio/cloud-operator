@@ -5,7 +5,7 @@ metadata:
   annotations:
     cloud.temporal.io/deletion-policy: retain
 spec:
-  description: manager=cloud-operator
+  description: Cloud Operator test for the retain deletion policy.
   tags:
     environment: staging
   replicas:

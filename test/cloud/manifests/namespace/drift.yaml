@@ -3,7 +3,7 @@ kind: Namespace
 metadata:
   name: tro-e2e-${RUN_ID}-ns-drift
 spec:
-  description: manager=cloud-operator
+  description: Cloud Operator test for drift correction.
   tags:
     environment: staging
   replicas:

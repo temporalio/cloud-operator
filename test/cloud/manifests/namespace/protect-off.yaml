@@ -3,7 +3,7 @@ kind: Namespace
 metadata:
   name: tro-e2e-${RUN_ID}-ns-protect
 spec:
-  description: manager=cloud-operator
+  description: Cloud Operator test for delete protection.
   tags:
     environment: staging
   replicas:
