@@ -224,14 +224,13 @@ make test-e2e-namespace-validation
 #### Tests against Temporal Cloud
 
 These need the [Temporal Cloud test account](#temporal-cloud-test-account). To
-check that the harness can create, check and delete a namespace in Cloud,
-without the operator:
+run the operator tests in `test/cloud` in a kind cluster against Cloud:
 
 ```
-make test-cloud-harness
+make test-cloud
 ```
 
-To write a Cloud test, follow `test/e2e/harness/cloud-basic.yaml`.
+To write a Cloud test, follow `test/cloud/namespace-lifecycle.yaml`.
 
 An illustrative example of a test that goes through the operator looks like the
 following. It applies a Namespace resource, checks it in Kubernetes, checks the

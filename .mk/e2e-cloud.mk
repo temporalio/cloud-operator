@@ -11,12 +11,10 @@ $(TEMPORAL_CLOUD_CLI): | $(BIN_DIR)
 # PATH so gdt exec steps can call them by name.
 E2E_CLOUD_ENV = TEMPORAL_CLOUD_CLI="$(TEMPORAL_CLOUD_CLI)" PATH="$(SCRIPTS_DIR)/e2e:$$PATH"
 
-# Runs gdt on Cloud tests with a fresh run ID, e.g. `@$(CLOUD_GDT) test/e2e/harness`.
-# Cloud tests take minutes, so gdt is verbose unless TEST_GDT_ARGS says otherwise.
-CLOUD_GDT = export $(E2E_CLOUD_ENV); \
-	export TEST_CLOUD_RUN_ID="$$(e2e-cloud new-run-id)"; \
-	echo "run ID: $$TEST_CLOUD_RUN_ID (namespaces tro-e2e-$$TEST_CLOUD_RUN_ID-*)"; \
-	$(GDT) $(or $(TEST_GDT_ARGS),-v) run
+RUN_ID ?= $(USER)
+CLOUD_GDT = PATH="$(BIN_DIR):$$PATH" TEMPORAL_API_KEY="$$TEMPORAL_CLOUD_API_KEY" \
+	TEST_KUBE_CONTEXT="$(TEST_KUBE_CONTEXT)" RUN_ID="$(RUN_ID)" \
+	$(GDT) $(or $(TEST_GDT_ARGS),-d) run
 
 ##@ Test (Temporal Cloud)
 
@@ -27,6 +25,14 @@ temporal-cloud-cli: $(TEMPORAL_CLOUD_CLI) ## Install the pinned Temporal Cloud C
 test-cloud-preflight: $(TEMPORAL_CLOUD_CLI) ## Check the Temporal Cloud e2e API key and access.
 	@$(E2E_CLOUD_ENV) e2e-cloud preflight
 
-.PHONY: test-cloud-harness
-test-cloud-harness: $(GDT) $(TEMPORAL_CLOUD_CLI) ## Test that the e2e harness can create, check and clean up a namespace in Temporal Cloud.
-	@$(CLOUD_GDT) test/e2e/harness
+.PHONY: test-cloud
+test-cloud: test-cloud-api-key $(KIND) $(GDT) $(TEMPORAL_CLOUD_CLI) test-cluster-reset test-deploy ## Run the operator tests in test/cloud against Temporal Cloud.
+	@echo "run ID: $(RUN_ID)"
+	@$(CLOUD_GDT) "$(abspath test/cloud)" || { \
+		"$(KUBECTL)" --context "$(TEST_KUBE_CONTEXT)" -n "$(TEST_OPERATOR_NAMESPACE)" \
+			logs deployment/temporal-cloud-operator; \
+		exit 1; }
+
+.PHONY: test-cloud-api-key
+test-cloud-api-key:
+	@[ -n "$${TEMPORAL_CLOUD_API_KEY:-}" ] || { echo "TEMPORAL_CLOUD_API_KEY is not set" >&2; exit 1; }

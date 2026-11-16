@@ -1,0 +1,93 @@
+name: namespace-lifecycle
+description: |
+  The operator creates, updates and deletes a Temporal Cloud namespace. Each
+  change is made to the Namespace resource and checked in Temporal Cloud with
+  the Temporal Cloud CLI. Run with `make test-cloud`.
+
+depends:
+  - name: temporal-cloud
+
+defaults:
+  kube:
+    context: $TEST_KUBE_CONTEXT
+    namespace: tco-test-cloud-ns-life
+
+tests:
+ - name: operator-api-key
+   kube:
+     namespace: temporal-cloud-operator
+     apply: manifests/operator/api-key.yaml
+
+ - name: operator-ready
+   kube:
+     namespace: temporal-cloud-operator
+     get: deployments/temporal-cloud-operator
+   timeout: 3m
+   retry:
+     interval: 5s
+   require:
+     conditions:
+       available: true
+
+ - name: create
+   kube.create: manifests/namespace/lifecycle.yaml
+
+ - name: active
+   kube.get: namespaces.cloud.temporal.io/tro-e2e-${RUN_ID}-ns-life
+   timeout: 10m
+   retry:
+     interval: 15s
+   assert:
+     matches:
+       status:
+         resource:
+           state: Active
+   var:
+     RESOURCE_ID:
+       from: $.status.resource.id
+
+ - name: active-in-cloud
+   exec: temporal-cloud namespace get --namespace $$RESOURCE_ID --output json
+   timeout: 2m
+   retry:
+     interval: 15s
+   assert:
+     out:
+       contains:
+         - RESOURCE_STATE_ACTIVE
+         - '"environment": "staging"'
+
+ - name: update
+   kube.apply: manifests/namespace/lifecycle-updated.yaml
+
+ - name: updated-in-cloud
+   exec: temporal-cloud namespace get --namespace $$RESOURCE_ID --output json
+   timeout: 10m
+   retry:
+     interval: 15s
+   assert:
+     out:
+       contains: '"retentionDays": 2'
+
+ - name: delete
+   kube.delete: namespaces.cloud.temporal.io/tro-e2e-${RUN_ID}-ns-life
+
+ - name: deleted
+   kube.get: namespaces.cloud.temporal.io
+   timeout: 15m
+   retry:
+     interval: 15s
+   assert:
+     len: 0
+
+ - name: deleted-in-cloud
+   exec: temporal-cloud namespace get --namespace $$RESOURCE_ID
+   timeout: 2m
+   retry:
+     interval: 15s
+   assert:
+     exit-code: 1
+     err:
+       contains-one-of:
+         - NotFound
+         - not found

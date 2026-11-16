@@ -1,0 +1,122 @@
+name: namespace-drift
+description: |
+  The operator restores a Temporal Cloud namespace that was changed without it.
+  The test changes a tag and the retention with the Temporal Cloud CLI, checks
+  that each change reached Temporal Cloud, then waits for the operator to set
+  it back to what the Namespace resource says.
+
+depends:
+  - name: temporal-cloud
+
+defaults:
+  kube:
+    context: $TEST_KUBE_CONTEXT
+    namespace: tco-test-cloud-ns-drift
+
+tests:
+ - name: operator-api-key
+   kube:
+     namespace: temporal-cloud-operator
+     apply: manifests/operator/api-key.yaml
+
+ - name: operator-ready
+   kube:
+     namespace: temporal-cloud-operator
+     get: deployments/temporal-cloud-operator
+   timeout: 3m
+   retry:
+     interval: 5s
+   require:
+     conditions:
+       available: true
+
+ - name: create
+   kube.create: manifests/namespace/drift.yaml
+
+ - name: active
+   kube.get: namespaces.cloud.temporal.io/tro-e2e-${RUN_ID}-ns-drift
+   timeout: 10m
+   retry:
+     interval: 15s
+   assert:
+     matches:
+       status:
+         resource:
+           state: Active
+   var:
+     RESOURCE_ID:
+       from: $.status.resource.id
+
+ - name: tagged-in-cloud
+   exec: temporal-cloud namespace get --namespace $$RESOURCE_ID --output json
+   timeout: 2m
+   retry:
+     interval: 15s
+   assert:
+     out:
+       contains: '"environment": "staging"'
+
+ - name: change-tag-in-cloud
+   exec: temporal-cloud namespace tag update --namespace $$RESOURCE_ID --key environment --value production --auto-confirm
+   timeout: 5m
+   retry:
+     interval: 15s
+
+ - name: tag-changed-in-cloud
+   exec: temporal-cloud namespace get --namespace $$RESOURCE_ID --output json
+   assert:
+     out:
+       contains: '"environment": "production"'
+
+ - name: tag-restored-in-cloud
+   exec: temporal-cloud namespace get --namespace $$RESOURCE_ID --output json
+   timeout: 10m
+   retry:
+     interval: 15s
+   assert:
+     out:
+       contains: '"environment": "staging"'
+
+ - name: change-retention-in-cloud
+   exec: temporal-cloud namespace retention set --namespace $$RESOURCE_ID --retention-days 2 --auto-confirm
+   timeout: 5m
+   retry:
+     interval: 15s
+
+ - name: retention-changed-in-cloud
+   exec: temporal-cloud namespace get --namespace $$RESOURCE_ID --output json
+   assert:
+     out:
+       contains: '"retentionDays": 2'
+
+ - name: retention-restored-in-cloud
+   exec: temporal-cloud namespace get --namespace $$RESOURCE_ID --output json
+   timeout: 10m
+   retry:
+     interval: 15s
+   assert:
+     out:
+       contains: '"retentionDays": 1'
+
+ - name: delete
+   kube.delete: namespaces.cloud.temporal.io/tro-e2e-${RUN_ID}-ns-drift
+
+ - name: deleted
+   kube.get: namespaces.cloud.temporal.io
+   timeout: 15m
+   retry:
+     interval: 15s
+   assert:
+     len: 0
+
+ - name: deleted-in-cloud
+   exec: temporal-cloud namespace get --namespace $$RESOURCE_ID
+   timeout: 2m
+   retry:
+     interval: 15s
+   assert:
+     exit-code: 1
+     err:
+       contains-one-of:
+         - NotFound
+         - not found
