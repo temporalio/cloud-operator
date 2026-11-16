@@ -10,3 +10,4 @@ spec:
           args:
             - --logging-level=debug
             - --logging-format=logfmt
+            - --reconcile-requeue-on-success-duration=10s

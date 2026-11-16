@@ -1,0 +1,70 @@
+name: namespace-retain
+description: |
+  Deleting a Namespace resource with the retain deletion policy removes the
+  resource and keeps the Temporal Cloud namespace. The last step deletes the
+  namespace with the Temporal Cloud CLI. Run with `make test-cloud`.
+
+depends:
+  - name: temporal-cloud
+
+defaults:
+  kube:
+    context: $TEST_KUBE_CONTEXT
+    namespace: tco-test-cloud-ns-retain
+
+tests:
+ - name: operator-api-key
+   kube:
+     namespace: temporal-cloud-operator
+     apply: manifests/operator/api-key.yaml
+
+ - name: operator-ready
+   kube:
+     namespace: temporal-cloud-operator
+     get: deployments/temporal-cloud-operator
+   timeout: 3m
+   retry:
+     interval: 5s
+   require:
+     conditions:
+       available: true
+
+ - name: create
+   kube.create: manifests/namespace/retain.yaml
+
+ - name: active
+   kube.get: namespaces.cloud.temporal.io/tro-e2e-${RUN_ID}-ns-retain
+   timeout: 10m
+   retry:
+     interval: 15s
+   assert:
+     matches:
+       status:
+         resource:
+           state: Active
+   var:
+     RESOURCE_ID:
+       from: $.status.resource.id
+
+ - name: delete
+   kube.delete: namespaces.cloud.temporal.io/tro-e2e-${RUN_ID}-ns-retain
+
+ - name: deleted
+   kube.get: namespaces.cloud.temporal.io
+   timeout: 2m
+   retry:
+     interval: 15s
+   assert:
+     len: 0
+
+ - name: kept-in-cloud
+   exec: temporal-cloud namespace get --namespace $$RESOURCE_ID --output json
+   assert:
+     out:
+       contains: RESOURCE_STATE_ACTIVE
+
+ - name: cleanup-in-cloud
+   exec: temporal-cloud namespace delete --namespace $$RESOURCE_ID --idempotent --auto-confirm
+   timeout: 5m
+   retry:
+     interval: 15s

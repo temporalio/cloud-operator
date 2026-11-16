@@ -41,7 +41,8 @@ func init() {
 }
 
 func main() {
-	cfg := config.New(config.WithFlags(&flagset))
+	var cfg config.Config
+	cfg.BindFlags(&flagset)
 	pflag.Parse()
 
 	cfg.SetDefaults()
