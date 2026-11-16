@@ -8,6 +8,7 @@ rules:
   - cloud.temporal.io
   resources:
   - namespaces
+  - projects
   - serviceaccounts
   verbs:
   - create
@@ -21,6 +22,7 @@ rules:
   - cloud.temporal.io
   resources:
   - namespaces/finalizers
+  - projects/finalizers
   - serviceaccounts/finalizers
   verbs:
   - update
@@ -28,6 +30,7 @@ rules:
   - cloud.temporal.io
   resources:
   - namespaces/status
+  - projects/status
   - serviceaccounts/status
   verbs:
   - get

@@ -16,6 +16,7 @@ import (
 
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 	ctrlnamespace "github.com/temporalio/cloud-operator/controller/namespace"
+	ctrlproject "github.com/temporalio/cloud-operator/controller/project"
 	ctrlserviceaccount "github.com/temporalio/cloud-operator/controller/serviceaccount"
 	"github.com/temporalio/cloud-operator/pkg/reconciler/base"
 	"github.com/temporalio/cloud-operator/pkg/version"
@@ -96,6 +97,11 @@ func main() {
 			ctrlnamespace.WithDefaultCloudClient(*tcc),
 		),
 		ctrlserviceaccount.New(
+			cfg,
+			rootLogger,
+			base.WithDefaultCloudClient(*tcc),
+		),
+		ctrlproject.New(
 			cfg,
 			rootLogger,
 			base.WithDefaultCloudClient(*tcc),
