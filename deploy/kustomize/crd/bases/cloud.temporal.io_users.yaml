@@ -1,0 +1,480 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: users.cloud.temporal.io
+spec:
+  group: cloud.temporal.io
+  names:
+    kind: User
+    listKind: UserList
+    plural: users
+    singular: user
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.resource.id
+      name: ID
+      type: string
+    - jsonPath: .spec.email
+      name: Email
+      type: string
+    - jsonPath: .spec.access.accountAccess.role
+      name: Role
+      type: string
+    - jsonPath: .status.resource.state
+      name: State
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: User represents an instance of a Temporal Cloud User.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec defines the desired state of the User.
+            properties:
+              access:
+                description: |-
+                  Access is the access assigned to the User. It must include an account
+                  role.
+                  Maps to Temporal Cloud proto `UserSpec.access`.
+                properties:
+                  accountAccess:
+                    description: |-
+                      AccountAccess is the access to the account.
+                      Maps to Temporal Cloud proto `Access.account_access`.
+                    properties:
+                      customRoles:
+                        description: |-
+                          CustomRoles are the custom roles assigned.
+                          Maps to Temporal Cloud proto `AccountAccess.custom_roles`.
+                        items:
+                          description: |-
+                            ResourceReferenceOrID contains *either* a Temporal Cloud resource identifier string
+                            *or* a ResourceReference that points to a cloud.temporal.io custom resource.
+                          properties:
+                            id:
+                              description: ID is the Temporal Cloud resource identifier.
+                              type: string
+                            ref:
+                              description: Ref is an optional field that points at
+                                a cloud.temporal.io custom resource
+                              properties:
+                                name:
+                                  description: Name is the name of the custom resource.
+                                  type: string
+                                namespace:
+                                  description: |-
+                                    Namespace contains the optional Kubernetes Namespace in which to find
+                                    the custom resource. If empty, the Kubernetes Namespace containing the
+                                    referring object is used.
+                                  type: string
+                              required:
+                              - name
+                              type: object
+                          type: object
+                          x-kubernetes-validations:
+                          - message: exactly one of ref or id must be set
+                            rule: has(self.ref) != has(self.id)
+                        maxItems: 1000
+                        type: array
+                        x-kubernetes-list-type: atomic
+                        x-kubernetes-validations:
+                        - message: each custom role can only appear once
+                          rule: self.all(a, self.exists_one(b, b == a))
+                      role:
+                        description: |-
+                          Role is the role on the account.
+                          Maps to Temporal Cloud proto `AccountAccess.role`.
+                        enum:
+                        - Owner
+                        - Admin
+                        - Developer
+                        - FinanceAdmin
+                        - Read
+                        - MetricsRead
+                        type: string
+                    required:
+                    - role
+                    type: object
+                  namespaceAccesses:
+                    description: |-
+                      NamespaceAccesses are the accesses to individual Namespaces.
+                      Maps to Temporal Cloud proto `Access.namespace_accesses`.
+                    items:
+                      description: |-
+                        NamespaceScopedAccess describes the access to a single Namespace.
+                        Maps to Temporal Cloud proto `NamespaceScopedAccess`.
+                      properties:
+                        access:
+                          description: |-
+                            Access is the access to the Namespace.
+                            Maps to Temporal Cloud proto `NamespaceScopedAccess.access`.
+                          properties:
+                            permission:
+                              description: |-
+                                Permission is the permission on the Namespace.
+                                Maps to Temporal Cloud proto `NamespaceAccess.permission`.
+                              enum:
+                              - Admin
+                              - Write
+                              - Read
+                              type: string
+                          required:
+                          - permission
+                          type: object
+                        namespace:
+                          description: |-
+                            Namespace is the Namespace the access applies to.
+                            Maps to Temporal Cloud proto `NamespaceScopedAccess.namespace`.
+                          properties:
+                            id:
+                              description: ID is the Temporal Cloud resource identifier.
+                              type: string
+                            ref:
+                              description: Ref is an optional field that points at
+                                a cloud.temporal.io custom resource
+                              properties:
+                                name:
+                                  description: Name is the name of the custom resource.
+                                  type: string
+                                namespace:
+                                  description: |-
+                                    Namespace contains the optional Kubernetes Namespace in which to find
+                                    the custom resource. If empty, the Kubernetes Namespace containing the
+                                    referring object is used.
+                                  type: string
+                              required:
+                              - name
+                              type: object
+                          type: object
+                          x-kubernetes-validations:
+                          - message: exactly one of ref or id must be set
+                            rule: has(self.ref) != has(self.id)
+                      required:
+                      - access
+                      - namespace
+                      type: object
+                    maxItems: 1000
+                    type: array
+                    x-kubernetes-list-type: atomic
+                    x-kubernetes-validations:
+                    - message: each namespace can only appear once
+                      rule: self.all(a, self.exists_one(b, b.__namespace__ == a.__namespace__))
+                  projectAccesses:
+                    description: |-
+                      ProjectAccesses are the accesses to individual Projects.
+                      Maps to Temporal Cloud proto `Access.project_accesses`.
+                    items:
+                      description: |-
+                        ProjectAccessEntry describes the access to a single Project.
+                        Maps to an entry of Temporal Cloud proto `Access.project_accesses`.
+                      properties:
+                        access:
+                          description: |-
+                            Access is the access to the Project.
+                            Maps to the value of Temporal Cloud proto `Access.project_accesses`.
+                          properties:
+                            role:
+                              description: |-
+                                Role is the role on the Project.
+                                Maps to Temporal Cloud proto `ProjectAccess.role`.
+                              enum:
+                              - Admin
+                              - Write
+                              - Read
+                              - List
+                              - Contribute
+                              - Member
+                              type: string
+                          required:
+                          - role
+                          type: object
+                        project:
+                          description: |-
+                            Project is the Project the access applies to.
+                            Maps to the key of Temporal Cloud proto `Access.project_accesses`.
+                          properties:
+                            id:
+                              description: ID is the Temporal Cloud resource identifier.
+                              type: string
+                            ref:
+                              description: Ref is an optional field that points at
+                                a cloud.temporal.io custom resource
+                              properties:
+                                name:
+                                  description: Name is the name of the custom resource.
+                                  type: string
+                                namespace:
+                                  description: |-
+                                    Namespace contains the optional Kubernetes Namespace in which to find
+                                    the custom resource. If empty, the Kubernetes Namespace containing the
+                                    referring object is used.
+                                  type: string
+                              required:
+                              - name
+                              type: object
+                          type: object
+                          x-kubernetes-validations:
+                          - message: exactly one of ref or id must be set
+                            rule: has(self.ref) != has(self.id)
+                      required:
+                      - access
+                      - project
+                      type: object
+                    maxItems: 1000
+                    type: array
+                    x-kubernetes-list-type: atomic
+                    x-kubernetes-validations:
+                    - message: each project can only appear once
+                      rule: self.all(a, self.exists_one(b, b.project == a.project))
+                required:
+                - accountAccess
+                type: object
+              email:
+                description: |-
+                  Email is the email address of the User. Temporal Cloud sends the
+                  invitation to it. It must be lowercase, because Temporal Cloud stores
+                  emails lowercased, and cannot be changed after creation.
+                  Maps to Temporal Cloud proto `UserSpec.email`.
+                format: email
+                maxLength: 254
+                minLength: 3
+                type: string
+                x-kubernetes-validations:
+                - message: email must be lowercase
+                  rule: self == self.lowerAscii()
+                - message: email cannot be changed after creation
+                  rule: self == oldSelf
+            required:
+            - access
+            - email
+            type: object
+            x-kubernetes-validations:
+            - fieldPath: .access.accountAccess.role
+              message: the Owner role cannot be assigned to a User
+              rule: '!has(self.access.accountAccess) || !has(self.access.accountAccess.role)
+                || self.access.accountAccess.role != ''Owner'''
+            - fieldPath: .access.accountAccess.role
+              message: the MetricsRead role cannot be assigned to a User
+              rule: '!has(self.access.accountAccess) || !has(self.access.accountAccess.role)
+                || self.access.accountAccess.role != ''MetricsRead'''
+            - fieldPath: .access
+              message: the Admin and Owner roles cannot be combined with namespace
+                or project access
+              rule: '!has(self.access.accountAccess) || !has(self.access.accountAccess.role)
+                || !(self.access.accountAccess.role in [''Admin'', ''Owner'']) ||
+                ((!has(self.access.namespaceAccesses) || size(self.access.namespaceAccesses)
+                == 0) && (!has(self.access.projectAccesses) || size(self.access.projectAccesses)
+                == 0))'
+          status:
+            description: Status describes the current status of the User.
+            properties:
+              conditions:
+                description: Conditions is the collection of Conditions associated
+                  with the resource.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              invitation:
+                description: |-
+                  Invitation is the open invitation sent to the User, if any. It is unset
+                  once the User accepts it.
+                  Maps to Temporal Cloud proto `User.invitation`.
+                properties:
+                  createdTime:
+                    description: |-
+                      CreatedTime is when the invitation was sent.
+                      Maps to Temporal Cloud proto `Invitation.created_time`.
+                    format: date-time
+                    type: string
+                  expiredTime:
+                    description: |-
+                      ExpiredTime is when the invitation expires or expired. Temporal Cloud
+                      doesn't change the User when it passes.
+                      Maps to Temporal Cloud proto `Invitation.expired_time`.
+                    format: date-time
+                    type: string
+                type: object
+              references:
+                description: References contains the Temporal Cloud resource IDs of
+                  related resources.
+                properties:
+                  namespaces:
+                    description: |-
+                      Namespaces are the Namespace CRs referenced by the spec that have a
+                      Temporal Cloud ID.
+                    items:
+                      description: |-
+                        NamespaceResolvedReference contains a Kubernetes Namespace and Name for a
+                        Temporal Cloud Namespace CR along with its resolved Temporal Cloud resource
+                        identifier.
+                      properties:
+                        id:
+                          description: ID is the Temporal Cloud resource identifier.
+                          type: string
+                        name:
+                          description: Name is the Kubernetes Name of the Temporal
+                            Cloud Namespace CR.
+                          type: string
+                        namespace:
+                          description: |-
+                            Namespace is the Kubernetes Namespace containing the Temporal Cloud
+                            Namespace CR.
+                          type: string
+                      required:
+                      - id
+                      - name
+                      - namespace
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - namespace
+                    - name
+                    x-kubernetes-list-type: map
+                type: object
+              resource:
+                description: |-
+                  Resource contains common information about the Temporal Cloud resource
+                  that this CR represents.
+                properties:
+                  asyncOperationID:
+                    description: |-
+                      asyncOperationID is an optional field that contains the ID of the last
+                      async operation on this resource that was NOT in a terminal state
+                      (FAILED, COMPLETED, FULFILLED,REJECTED) when this reconcile loop
+                      executed.
+
+                      The reconciler removes this field when it determines the operation has
+                      reached a terminal state.
+
+                      Maps to Temporal Cloud proto `async_operation_id`.
+                    type: string
+                  createdTime:
+                    description: |-
+                      CreatedTime is when the resource was created in Temporal Cloud.
+                      Maps to Temporal Cloud proto `created_time`.
+                    format: date-time
+                    type: string
+                  id:
+                    description: |-
+                      ID is the identifier Temporal Cloud uses for the resource. Not set for
+                      resources that Temporal Cloud identifies by name.
+                      Maps to Temporal Cloud proto `id`, or `Namespace.namespace` for
+                      Namespaces.
+                    type: string
+                  lastModifiedTime:
+                    description: |-
+                      LastModifiedTime is when the resource was last modified in Temporal
+                      Cloud.
+                      Maps to Temporal Cloud proto `last_modified_time`.
+                    format: date-time
+                    type: string
+                  state:
+                    description: |-
+                      State is the state of the resource in Temporal Cloud.
+                      Maps to Temporal Cloud proto `state`.
+                    enum:
+                    - Activating
+                    - ActivationFailed
+                    - Active
+                    - Updating
+                    - UpdateFailed
+                    - Deleting
+                    - DeleteFailed
+                    - Deleted
+                    - Suspended
+                    - Expired
+                    type: string
+                  version:
+                    description: |-
+                      Version is the version of the resource in Temporal Cloud. It is
+                      sent with each update and delete request.
+                      Maps to Temporal Cloud proto `resource_version`.
+                    type: string
+                type: object
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
