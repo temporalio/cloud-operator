@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/temporalio/cloud-operator/pkg/util/ptr"
+	"github.com/temporalio/cloud-operator/pkg/ptr"
 )
 
 type spec struct {

@@ -15,9 +15,9 @@ import (
 
 	cloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
+	"github.com/temporalio/cloud-operator/pkg/ptr"
 	"github.com/temporalio/cloud-operator/pkg/temporal/cloud"
 	"github.com/temporalio/cloud-operator/pkg/types"
-	"github.com/temporalio/cloud-operator/pkg/util/ptr"
 )
 
 // ResourceSync makes at most one Temporal Cloud call to move the Namespace

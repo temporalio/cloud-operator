@@ -11,9 +11,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
+	"github.com/temporalio/cloud-operator/pkg/ptr"
 	"github.com/temporalio/cloud-operator/pkg/temporal/cloud"
 	"github.com/temporalio/cloud-operator/pkg/types"
-	"github.com/temporalio/cloud-operator/pkg/util/ptr"
 )
 
 // ResourceSync creates the Temporal Cloud project if it doesn't exist yet, and
