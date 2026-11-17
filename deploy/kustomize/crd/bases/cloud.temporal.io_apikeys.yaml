@@ -147,15 +147,15 @@ spec:
             - displayName
             - expiryTime
             - owner
+            - token
             type: object
             x-kubernetes-validations:
             - fieldPath: .owner
               message: owner cannot be changed after creation
               rule: self.owner == oldSelf.owner
             - fieldPath: .token
-              message: token cannot be added, changed or removed after creation
-              rule: has(self.token) == has(oldSelf.token) && (!has(self.token) ||
-                self.token == oldSelf.token)
+              message: token cannot be changed after creation
+              rule: self.token == oldSelf.token
           status:
             description: Status describes the current status of the API Key.
             properties:
@@ -308,8 +308,6 @@ spec:
                     type: string
                 type: object
             type: object
-        required:
-        - spec
         type: object
     served: true
     storage: true

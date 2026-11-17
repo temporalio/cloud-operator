@@ -25,8 +25,8 @@ type APIKey struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// Spec defines the desired state of the API Key.
-	// +required
-	Spec APIKeySpec `json:"spec"`
+	// +optional
+	Spec APIKeySpec `json:"spec,omitzero"`
 	// Status describes the current status of the API Key.
 	// +optional
 	Status APIKeyStatus `json:"status,omitempty"`
@@ -42,13 +42,13 @@ func (k *APIKey) FromProto(in *tcloudidentityv1.ApiKey) *APIKey {
 	out.Status.References = *k.Status.References.DeepCopy()
 
 	if in == nil {
-		out.Spec.Token = k.Spec.Token.DeepCopy()
+		out.Spec.Token = *k.Spec.Token.DeepCopy()
 		return &out
 	}
 
 	var spec APIKeySpec
 	out.Spec = spec.FromProto(in.GetSpec())
-	out.Spec.Token = k.Spec.Token.DeepCopy()
+	out.Spec.Token = *k.Spec.Token.DeepCopy()
 
 	out.Status.Resource.ID = in.GetId()
 	out.Status.Resource.Version = in.GetResourceVersion()
@@ -64,7 +64,7 @@ func (k *APIKey) FromProto(in *tcloudidentityv1.ApiKey) *APIKey {
 // Ref: https://github.com/temporalio/cloud-api/blob/main/temporal/api/cloud/identity/v1/message.proto
 // +k8s:openapi-gen=true
 // +kubebuilder:validation:XValidation:rule="self.owner == oldSelf.owner",message="owner cannot be changed after creation",fieldPath=".owner"
-// +kubebuilder:validation:XValidation:rule="has(self.token) == has(oldSelf.token) && (!has(self.token) || self.token == oldSelf.token)",message="token cannot be added, changed or removed after creation",fieldPath=".token"
+// +kubebuilder:validation:XValidation:rule="self.token == oldSelf.token",message="token cannot be changed after creation",fieldPath=".token"
 type APIKeySpec struct {
 	// DisplayName is the mutable name of the API Key in Temporal Cloud.
 	// It does not have to be unique.
@@ -97,8 +97,8 @@ type APIKeySpec struct {
 	// Token is where the API Key's token is stored. When the operator creates
 	// the API Key, it writes the token there. It cannot be changed after
 	// creation.
-	// +optional
-	Token *APIKeyToken `json:"token,omitempty"`
+	// +required
+	Token APIKeyToken `json:"token"`
 }
 
 // FromProto returns an APIKeySpec constructed from the supplied Temporal Cloud

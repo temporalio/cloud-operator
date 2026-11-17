@@ -178,7 +178,7 @@ func TestAPIKey_FromProto(t *testing.T) {
 	key := v1alpha1.APIKey{}
 	key.Name = "ci"
 	key.Namespace = "apps"
-	key.Spec.Token = &v1alpha1.APIKeyToken{
+	key.Spec.Token = v1alpha1.APIKeyToken{
 		SecretKeyRef: &v1alpha1.SecretKeyRef{Name: "ci-api-key", Key: "token"},
 	}
 	key.Status.References = resolvedServiceAccount("apps", "ci", "sa-1")
