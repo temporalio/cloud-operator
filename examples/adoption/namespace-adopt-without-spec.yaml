@@ -1,0 +1,8 @@
+# Passes: spec may be omitted when adopting with a resource ID.
+apiVersion: cloud.temporal.io/v1alpha1
+kind: Namespace
+metadata:
+  name: adopt-without-spec
+  annotations:
+    cloud.temporal.io/adoption-policy: adopt
+    cloud.temporal.io/resource-id: adopt-without-spec.abc12

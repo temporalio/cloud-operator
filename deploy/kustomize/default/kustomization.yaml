@@ -11,5 +11,6 @@ labels:
 resources:
 - namespace.yaml
 - ../crd
+- ../admission
 - ../rbac
 - ../cloud-operator
