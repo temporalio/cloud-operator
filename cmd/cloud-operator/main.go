@@ -95,7 +95,7 @@ func main() {
 		ctrlnamespace.New(
 			cfg,
 			rootLogger,
-			ctrlnamespace.WithDefaultCloudClient(*tcc),
+			base.WithDefaultCloudClient(*tcc),
 		),
 		ctrlserviceaccount.New(
 			cfg,

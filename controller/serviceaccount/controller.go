@@ -17,6 +17,9 @@ import (
 
 const (
 	ControllerName = "serviceaccount"
+
+	// resourceKind names the Temporal Cloud resource in messages.
+	resourceKind = "service account"
 )
 
 // New returns a new [controller.Controller] that handles

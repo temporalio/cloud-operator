@@ -24,6 +24,7 @@ import (
 	tcloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 	"github.com/temporalio/cloud-operator/controller/namespace"
+	"github.com/temporalio/cloud-operator/pkg/reconciler/base"
 	"github.com/temporalio/cloud-operator/pkg/testutil/kube"
 	fakeserver "github.com/temporalio/cloud-operator/pkg/testutil/temporal/cloud/fake/server"
 )
@@ -366,16 +367,40 @@ func TestReconciler_ResourceDelete_DeleteProtection(t *testing.T) {
 }
 
 func TestReconciler_ResourceDelete_InFlightStates(t *testing.T) {
+	statusActivating := statusWithState(tcloudcommon.ResourceStateActivating)
+	statusUpdating := statusWithState(tcloudcommon.ResourceStateUpdating)
+
 	cases := []deleteCase{
 		{
-			name:       "activating requeues without cloud calls",
-			status:     statusWithState(tcloudcommon.ResourceStateActivating),
-			expRequeue: true,
+			name:   "activating in cloud requeues without deleting",
+			status: statusActive,
+			cloudNS: cloudNamespace(
+				tcloudresourcev1.ResourceState_RESOURCE_STATE_ACTIVATING, false,
+			),
+			expGetNamespace: true,
+			expRequeue:      true,
+			expStatus:       &statusActivating,
 		},
 		{
-			name:       "updating requeues without cloud calls",
-			status:     statusWithState(tcloudcommon.ResourceStateUpdating),
-			expRequeue: true,
+			name:   "updating in cloud requeues without deleting",
+			status: statusActive,
+			cloudNS: cloudNamespace(
+				tcloudresourcev1.ResourceState_RESOURCE_STATE_UPDATING, false,
+			),
+			expGetNamespace: true,
+			expRequeue:      true,
+			expStatus:       &statusUpdating,
+		},
+		{
+			// The CR's status is from the last reconcile, so the state
+			// Temporal Cloud reports now decides.
+			name:            "stale activating status with an active namespace deletes",
+			status:          statusActivating,
+			deleteResp:      deleteAccepted,
+			expGetNamespace: true,
+			expDelete:       true,
+			expRequeue:      true,
+			expStatus:       &statusDeleting,
 		},
 	}
 	for _, tc := range cases {
@@ -624,10 +649,12 @@ func newDeleteTestReconciler(
 	cloud *deleteFakeCloud,
 	tns *tcloudv1alpha1.Namespace,
 ) *namespace.Reconciler {
-	return namespace.NewReconciler(
-		namespace.WithDefaultCloudClient(*cloud.client),
-		namespace.WithKubeClient(kube.NewFakeClient(tns)),
-	)
+	// base.WithKubeClient would also create a cloud connection manager,
+	// which looks for a hostport annotation instead of using the default
+	// client.
+	r := namespace.NewReconciler(base.WithDefaultCloudClient(*cloud.client))
+	r.SetKubeClient(kube.NewFakeClient(tns))
+	return r
 }
 
 // requireNotMutated checks that ResourceDelete left the resource passed in
