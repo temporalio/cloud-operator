@@ -389,9 +389,9 @@ func TestReconciler_ResourceSync_CreateInProject(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(tt *testing.T) {
-			require := require.New(tt)
+			r := require.New(tt)
 			var gotCreates []*tcloudservicev1.CreateNamespaceRequest
-			r := newSyncReconciler(tt, tc.kubeObjs,
+			sr := newSyncReconciler(tt, tc.kubeObjs,
 				fakeserver.WithCreateNamespace(func(
 					_ context.Context, req *tcloudservicev1.CreateNamespaceRequest,
 				) (*tcloudservicev1.CreateNamespaceResponse, error) {
@@ -404,20 +404,20 @@ func TestReconciler_ResourceSync_CreateInProject(t *testing.T) {
 			cr.Spec.Project = tc.project
 			latest := &tcloudv1alpha1.Namespace{ObjectMeta: cr.ObjectMeta}
 
-			_, err := r.ResourceSync(
+			_, err := sr.ResourceSync(
 				context.TODO(), namespace.NewResource(cr), namespace.NewResource(latest),
 			)
 
 			// Both waiting for the project and a successful create requeue.
 			var requeueAfter *requeue.RequeueNeededAfter
-			require.ErrorAs(err, &requeueAfter)
-			require.ErrorContains(err, tc.expErr)
+			r.ErrorAs(err, &requeueAfter)
+			r.ErrorContains(err, tc.expErr)
 			if !tc.expCreate {
-				require.Empty(gotCreates, "nothing must be created while the project isn't ready")
+				r.Empty(gotCreates, "nothing must be created while the project isn't ready")
 				return
 			}
-			require.Len(gotCreates, 1)
-			require.Equal(tc.expProjectID, gotCreates[0].GetProjectId())
+			r.Len(gotCreates, 1)
+			r.Equal(tc.expProjectID, gotCreates[0].GetProjectId())
 		})
 	}
 }
@@ -461,24 +461,24 @@ func TestReconciler_ResourceSync_ProjectMismatch(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(tt *testing.T) {
-			require := require.New(tt)
-			r := newSyncReconciler(tt, tc.kubeObjs)
+			r := require.New(tt)
+			sr := newSyncReconciler(tt, tc.kubeObjs)
 			desired := activeNamespace()
 			desired.Spec.Project = tc.project
 			latest := desired.DeepCopy()
 			latest.Status.References.Project = tc.cloudProject
 
-			_, err := r.ResourceSync(
+			_, err := sr.ResourceSync(
 				context.TODO(), namespace.NewResource(desired), namespace.NewResource(latest),
 			)
 
 			if tc.expErr != "" {
 				var terminal *ctrlerrors.TerminalError
-				require.ErrorAs(err, &terminal)
-				require.ErrorContains(err, tc.expErr)
+				r.ErrorAs(err, &terminal)
+				r.ErrorContains(err, tc.expErr)
 				return
 			}
-			require.NoError(err)
+			r.NoError(err)
 		})
 	}
 }

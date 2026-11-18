@@ -139,7 +139,7 @@ type UserReferences struct {
 	// +listType=map
 	// +listMapKey=namespace
 	// +listMapKey=name
-	Namespaces []NamespaceResolvedReference `json:"namespaces,omitempty"`
+	Namespaces []cloudcommon.ResolvedReference `json:"namespaces,omitempty"`
 }
 
 // NamespaceID returns the Temporal Cloud ID of the Namespace CR that the

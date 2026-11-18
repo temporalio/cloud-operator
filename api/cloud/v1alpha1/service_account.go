@@ -122,7 +122,7 @@ func (s ServiceAccountSpec) FromProto(in *tcloudidentityv1.ServiceAccountSpec) S
 }
 
 // ToProto returns the Temporal Cloud ServiceAccountSpec for the spec, with each
-// Namespace ref replaced by its ID from `refs`.
+// Namespace and Project ref replaced by its ID from `refs`.
 func (s ServiceAccountSpec) ToProto(
 	referrerNamespace string,
 	refs ServiceAccountReferences,
@@ -134,6 +134,13 @@ func (s ServiceAccountSpec) ToProto(
 		id, _ := refs.NamespaceID(*namespace.Ref, referrerNamespace)
 		return id
 	}
+	projectID := func(project cloudcommon.ResourceReferenceOrID) string {
+		if project.Ref == nil {
+			return project.ID
+		}
+		id, _ := refs.ProjectID(*project.Ref, referrerNamespace)
+		return id
+	}
 
 	out := &tcloudidentityv1.ServiceAccountSpec{
 		Name:        s.DisplayName,
@@ -141,7 +148,7 @@ func (s ServiceAccountSpec) ToProto(
 	}
 	switch {
 	case s.AccountScopedAccess != nil:
-		out.Access = s.AccountScopedAccess.toProto(namespaceID)
+		out.Access = s.AccountScopedAccess.toProto(namespaceID, projectID)
 	case s.NamespaceScopedAccess != nil:
 		out.NamespaceScopedAccess = &tcloudidentityv1.NamespaceScopedAccess{
 			Namespace: namespaceID(s.NamespaceScopedAccess.Namespace),
@@ -149,7 +156,7 @@ func (s ServiceAccountSpec) ToProto(
 		}
 	case s.ProjectScopedAccess != nil:
 		out.ProjectScopedAccess = &tcloudidentityv1.ProjectScopedAccess{
-			ProjectId: s.ProjectScopedAccess.Project.ID,
+			ProjectId: projectID(s.ProjectScopedAccess.Project),
 			Access: &tcloudidentityv1.ProjectAccess{
 				Role: s.ProjectScopedAccess.Access.Role.ToProto(),
 			},
@@ -205,7 +212,14 @@ type ServiceAccountReferences struct {
 	// +listType=map
 	// +listMapKey=namespace
 	// +listMapKey=name
-	Namespaces []NamespaceResolvedReference `json:"namespaces,omitempty"`
+	Namespaces []cloudcommon.ResolvedReference `json:"namespaces,omitempty"`
+	// Projects are the Project CRs referenced by the spec that have a
+	// Temporal Cloud ID.
+	// +optional
+	// +listType=map
+	// +listMapKey=namespace
+	// +listMapKey=name
+	Projects []cloudcommon.ResolvedReference `json:"projects,omitempty"`
 }
 
 // NamespaceID returns the Temporal Cloud ID of the Namespace CR that the
@@ -214,16 +228,16 @@ func (r ServiceAccountReferences) NamespaceID(
 	ref cloudcommon.ResourceReference,
 	referrerNamespace string,
 ) (string, bool) {
-	namespace := ref.Namespace
-	if namespace == "" {
-		namespace = referrerNamespace
-	}
-	for _, resolved := range r.Namespaces {
-		if resolved.Namespace == namespace && resolved.Name == ref.Name {
-			return resolved.ID, true
-		}
-	}
-	return "", false
+	return cloudcommon.ResolvedID(r.Namespaces, ref, referrerNamespace)
+}
+
+// ProjectID returns the Temporal Cloud ID of the Project CR that the supplied
+// reference points to, and whether it has been resolved.
+func (r ServiceAccountReferences) ProjectID(
+	ref cloudcommon.ResourceReference,
+	referrerNamespace string,
+) (string, bool) {
+	return cloudcommon.ResolvedID(r.Projects, ref, referrerNamespace)
 }
 
 // ServiceAccountList is a list of ServiceAccount resources

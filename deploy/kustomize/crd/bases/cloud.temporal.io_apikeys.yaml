@@ -234,12 +234,11 @@ spec:
                         description: ID is the Temporal Cloud resource identifier.
                         type: string
                       name:
-                        description: Name is the Kubernetes Name of the Service Account
-                          CR.
+                        description: Name is the Kubernetes Name of the custom resource.
                         type: string
                       namespace:
                         description: Namespace is the Kubernetes Namespace containing
-                          the Service Account CR.
+                          the custom resource.
                         type: string
                     required:
                     - id
