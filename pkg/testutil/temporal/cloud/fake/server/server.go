@@ -26,6 +26,9 @@ type fakeServer struct {
 	updateServiceAccountFunc UpdateServiceAccountFunc
 	deleteServiceAccountFunc DeleteServiceAccountFunc
 
+	createApiKeyFunc CreateApiKeyFunc
+	getApiKeyFunc    GetApiKeyFunc
+
 	createProjectFunc CreateProjectFunc
 	getProjectFunc    GetProjectFunc
 	updateProjectFunc UpdateProjectFunc
