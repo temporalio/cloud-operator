@@ -12,6 +12,8 @@ import (
 // +kubebuilder:rbac:groups=cloud.temporal.io,resources=namespaces,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cloud.temporal.io,resources=namespaces/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=cloud.temporal.io,resources=namespaces/finalizers,verbs=update
+// Namespaces can reference Project custom resources.
+// +kubebuilder:rbac:groups=cloud.temporal.io,resources=projects,verbs=get;list;watch
 
 const (
 	ControllerName = "namespace"

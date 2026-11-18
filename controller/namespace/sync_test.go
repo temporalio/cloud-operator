@@ -15,6 +15,7 @@ import (
 	"github.com/temporalio/kube-temporal/pkg/controller/requeue"
 	"github.com/temporalio/kube-temporal/pkg/types"
 	tcloudservicev1 "go.temporal.io/cloud-sdk/api/cloudservice/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 func TestReconciler_ResourceSync_CreatesWithResourceIDAnnotation(t *testing.T) {
@@ -305,6 +306,179 @@ func TestReconciler_ResourceSync_UpdateTags(t *testing.T) {
 			require.Equal("my-ns.acct1", got.GetNamespace())
 			require.Equal(tc.expUpsert, got.GetTagsToUpsert())
 			require.Equal(tc.expRemove, got.GetTagsToRemove())
+		})
+	}
+}
+
+// newSyncReconciler returns a Reconciler that talks to a fake Temporal Cloud
+// server configured with serverOpts, and reads custom resources from a fake
+// Kubernetes client holding kubeObjs.
+func newSyncReconciler(
+	t *testing.T,
+	kubeObjs []runtime.Object,
+	serverOpts ...fakeserver.NewOption,
+) *namespace.Reconciler {
+	t.Helper()
+	srv, err := fakeserver.New(serverOpts...)
+	require.NoError(t, err)
+	t.Cleanup(srv.Start())
+	tcc, err := srv.Client()
+	require.NoError(t, err)
+
+	kc := kube.NewFakeClient(kubeObjs...)
+	r := namespace.NewReconciler(base.WithDefaultCloudClient(*tcc))
+	r.SetKubeClient(kc)
+	r.SetKubeReader(kc)
+	return r
+}
+
+// projectCR returns a Project CR named orders
+func projectCR(state cloudcommon.ResourceState) *tcloudv1alpha1.Project {
+	p := &tcloudv1alpha1.Project{}
+	p.Namespace = kubeNamespace
+	p.Name = "orders"
+	p.Status.Resource.ID = "p-orders"
+	p.Status.Resource.State = state
+	return p
+}
+
+func TestReconciler_ResourceSync_CreateInProject(t *testing.T) {
+	projectRef := &cloudcommon.ResourceReferenceOrID{
+		Ref: &cloudcommon.ResourceReference{Name: "orders"},
+	}
+
+	cases := []struct {
+		name         string
+		project      *cloudcommon.ResourceReferenceOrID
+		kubeObjs     []runtime.Object
+		expErr       string
+		expCreate    bool
+		expProjectID string
+	}{
+		{
+			name:    "fail if the referenced project doesn't exist yet, so it waits",
+			project: projectRef,
+			expErr:  "spec.project (temporal-cloud-operator/orders)",
+		},
+		{
+			name:     "fail if the referenced project is still activating, so it waits",
+			project:  projectRef,
+			kubeObjs: []runtime.Object{projectCR(cloudcommon.ResourceStateActivating)},
+			expErr:   "spec.project (temporal-cloud-operator/orders)",
+		},
+		{
+			name:         "a project ref yields a create in the referenced project",
+			project:      projectRef,
+			kubeObjs:     []runtime.Object{projectCR(cloudcommon.ResourceStateActive)},
+			expErr:       "created tcloud namespace",
+			expCreate:    true,
+			expProjectID: "p-orders",
+		},
+		{
+			name:         "a project id yields a create in that project",
+			project:      &cloudcommon.ResourceReferenceOrID{ID: "p-legacy"},
+			expErr:       "created tcloud namespace",
+			expCreate:    true,
+			expProjectID: "p-legacy",
+		},
+		{
+			name:      "no project yields a create without a project id",
+			expErr:    "created tcloud namespace",
+			expCreate: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(tt *testing.T) {
+			require := require.New(tt)
+			var gotCreates []*tcloudservicev1.CreateNamespaceRequest
+			r := newSyncReconciler(tt, tc.kubeObjs,
+				fakeserver.WithCreateNamespace(func(
+					_ context.Context, req *tcloudservicev1.CreateNamespaceRequest,
+				) (*tcloudservicev1.CreateNamespaceResponse, error) {
+					gotCreates = append(gotCreates, req)
+					return &tcloudservicev1.CreateNamespaceResponse{Namespace: "my-ns.acct1"}, nil
+				}),
+			)
+			cr := activeNamespace()
+			cr.Status = tcloudv1alpha1.NamespaceStatus{}
+			cr.Spec.Project = tc.project
+			latest := &tcloudv1alpha1.Namespace{ObjectMeta: cr.ObjectMeta}
+
+			_, err := r.ResourceSync(
+				context.TODO(), namespace.NewResource(cr), namespace.NewResource(latest),
+			)
+
+			// Both waiting for the project and a successful create requeue.
+			var requeueAfter *requeue.RequeueNeededAfter
+			require.ErrorAs(err, &requeueAfter)
+			require.ErrorContains(err, tc.expErr)
+			if !tc.expCreate {
+				require.Empty(gotCreates, "nothing must be created while the project isn't ready")
+				return
+			}
+			require.Len(gotCreates, 1)
+			require.Equal(tc.expProjectID, gotCreates[0].GetProjectId())
+		})
+	}
+}
+
+func TestReconciler_ResourceSync_ProjectMismatch(t *testing.T) {
+	projectRef := &cloudcommon.ResourceReferenceOrID{
+		Ref: &cloudcommon.ResourceReference{Name: "orders"},
+	}
+
+	cases := []struct {
+		name         string
+		project      *cloudcommon.ResourceReferenceOrID
+		cloudProject string
+		kubeObjs     []runtime.Object
+		expErr       string
+	}{
+		{
+			name:         "fail if the referenced project isn't the one temporal cloud reports",
+			project:      projectRef,
+			cloudProject: "p-default",
+			kubeObjs:     []runtime.Object{projectCR(cloudcommon.ResourceStateActive)},
+			expErr:       `is in project "p-default" but spec.project is "p-orders"`,
+		},
+		{
+			name:         "fail if the project id isn't the one temporal cloud reports",
+			project:      &cloudcommon.ResourceReferenceOrID{ID: "p-legacy"},
+			cloudProject: "p-default",
+			expErr:       `is in project "p-default" but spec.project is "p-legacy"`,
+		},
+		{
+			name:         "a project ref matching temporal cloud yields no change",
+			project:      projectRef,
+			cloudProject: "p-orders",
+			kubeObjs:     []runtime.Object{projectCR(cloudcommon.ResourceStateActive)},
+		},
+		{
+			name:         "a project ref that isn't ready yields no change",
+			project:      projectRef,
+			cloudProject: "p-orders",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(tt *testing.T) {
+			require := require.New(tt)
+			r := newSyncReconciler(tt, tc.kubeObjs)
+			desired := activeNamespace()
+			desired.Spec.Project = tc.project
+			latest := desired.DeepCopy()
+			latest.Status.References.Project = tc.cloudProject
+
+			_, err := r.ResourceSync(
+				context.TODO(), namespace.NewResource(desired), namespace.NewResource(latest),
+			)
+
+			if tc.expErr != "" {
+				var terminal *ctrlerrors.TerminalError
+				require.ErrorAs(err, &terminal)
+				require.ErrorContains(err, tc.expErr)
+				return
+			}
+			require.NoError(err)
 		})
 	}
 }
