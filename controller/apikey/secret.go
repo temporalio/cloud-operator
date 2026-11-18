@@ -114,3 +114,29 @@ func secretNotControlledError(secret *corev1.Secret) error {
 		requeue.DefaultRequeueAfterDuration,
 	)
 }
+
+// releaseTokenSecret removes the ownerReference to `cr` from the token Secret,
+// so that deleting `cr` doesn't delete the Secret.
+func (r *Reconciler) releaseTokenSecret(
+	ctx context.Context,
+	cr *tcloudv1alpha1.APIKey,
+) error {
+	secret, err := r.readTokenSecret(ctx, cr)
+	if err != nil {
+		return err
+	}
+	if secret == nil || !controlledBy(secret, cr) {
+		return nil
+	}
+	var owners []metav1.OwnerReference
+	for _, ref := range secret.OwnerReferences {
+		if ref.UID != cr.UID {
+			owners = append(owners, ref)
+		}
+	}
+	secret.OwnerReferences = owners
+	if err := r.KubeClient().Update(ctx, secret); err != nil {
+		return fmt.Errorf("failed updating Secret %s: %w", client.ObjectKeyFromObject(secret), err)
+	}
+	return nil
+}

@@ -203,3 +203,69 @@ func (s fakeServer) UpdateApiKey(
 	}
 	return s.UnimplementedCloudServiceServer.UpdateApiKey(ctx, req)
 }
+
+type DeleteApiKeyFunc func(
+	context.Context,
+	*tcloudservicev1.DeleteApiKeyRequest,
+) (*tcloudservicev1.DeleteApiKeyResponse, error)
+
+// WithDeleteApiKey sets the fake server's DeleteApiKey function override.
+func WithDeleteApiKey(fn DeleteApiKeyFunc) NewOption {
+	return func(s *fakeServer) {
+		s.deleteApiKeyFunc = fn
+	}
+}
+
+// OnDeleteApiKey lets tests validate arguments passed to DeleteApiKey and set
+// its response.
+func OnDeleteApiKey(
+	asserter func(*tcloudservicev1.DeleteApiKeyRequest),
+	returner func() (*tcloudservicev1.DeleteApiKeyResponse, error),
+) NewOption {
+	return func(s *fakeServer) {
+		fn := func(
+			ctx context.Context, req *tcloudservicev1.DeleteApiKeyRequest,
+		) (*tcloudservicev1.DeleteApiKeyResponse, error) {
+			if asserter != nil {
+				asserter(req)
+			}
+			if returner == nil {
+				return &tcloudservicev1.DeleteApiKeyResponse{}, nil
+			}
+			resp, err := returner()
+			if resp == nil && err == nil {
+				resp = &tcloudservicev1.DeleteApiKeyResponse{}
+			}
+			return resp, err
+		}
+		s.deleteApiKeyFunc = fn
+	}
+}
+
+// OnDeleteApiKeyReturn sets the response returned by DeleteApiKey.
+func OnDeleteApiKeyReturn(
+	resp *tcloudservicev1.DeleteApiKeyResponse,
+	err error,
+) NewOption {
+	if resp == nil && err == nil {
+		resp = &tcloudservicev1.DeleteApiKeyResponse{}
+	}
+	return func(s *fakeServer) {
+		fn := func(
+			context.Context, *tcloudservicev1.DeleteApiKeyRequest,
+		) (*tcloudservicev1.DeleteApiKeyResponse, error) {
+			return resp, err
+		}
+		s.deleteApiKeyFunc = fn
+	}
+}
+
+func (s fakeServer) DeleteApiKey(
+	ctx context.Context,
+	req *tcloudservicev1.DeleteApiKeyRequest,
+) (*tcloudservicev1.DeleteApiKeyResponse, error) {
+	if s.deleteApiKeyFunc != nil {
+		return s.deleteApiKeyFunc(ctx, req)
+	}
+	return s.UnimplementedCloudServiceServer.DeleteApiKey(ctx, req)
+}
