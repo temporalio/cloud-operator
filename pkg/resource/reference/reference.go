@@ -80,6 +80,26 @@ func ResolveNamespaceID(
 	)
 }
 
+// ResolveServiceAccountID returns the Temporal Cloud ID of the Service Account
+// that refOrID refers to, once that Service Account is Active.
+func ResolveServiceAccountID(
+	ctx context.Context,
+	kr client.Reader,
+	referrerNamespace string,
+	refOrID cloudcommon.ResourceReferenceOrID,
+) (string, error) {
+	return ResolveID(
+		ctx, kr, referrerNamespace, refOrID,
+		&tcloudv1alpha1.ServiceAccount{},
+		func(sa *tcloudv1alpha1.ServiceAccount) string {
+			if sa.Status.Resource.State != cloudcommon.ResourceStateActive {
+				return ""
+			}
+			return sa.Status.Resource.ID
+		},
+	)
+}
+
 // Check collects the references in a spec that can't be sent to
 // Temporal Cloud yet.
 type Check struct {

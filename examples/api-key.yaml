@@ -1,0 +1,27 @@
+# An example Temporal Cloud API Key owned by the Service Account in
+# examples/service-account.yaml. Create the Service Account first, in the same
+# Kubernetes Namespace, then run:
+#
+#   kubectl apply -n <kubernetes-namespace> -f examples/api-key.yaml
+#
+# The operator writes the API Key's token to the Secret named in
+# spec.token.secretKeyRef. Temporal Cloud returns the token only once, when the
+# API Key is created. To list all spec fields, run:
+#
+#   kubectl explain apikeys.spec --api-version=cloud.temporal.io/v1alpha1
+apiVersion: cloud.temporal.io/v1alpha1
+kind: APIKey
+metadata:
+  name: payments-worker
+spec:
+  displayName: payments-worker
+  description: Used by the payment workers against payments-prod.
+  owner:
+    serviceAccount:
+      ref:
+        name: payments-worker
+  expiryTime: "2027-06-01T00:00:00Z"
+  token:
+    secretKeyRef:
+      name: payments-worker-temporal-api-key
+      key: token

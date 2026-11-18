@@ -120,6 +120,88 @@ func TestResolveNamespaceID(t *testing.T) {
 	}
 }
 
+func TestResolveServiceAccountID(t *testing.T) {
+	const referrerNamespace = "apps"
+
+	newServiceAccount := func(
+		kubeNamespace, name, id string,
+		state cloudcommon.ResourceState,
+	) *tcloudv1alpha1.ServiceAccount {
+		sa := &tcloudv1alpha1.ServiceAccount{}
+		sa.Namespace = kubeNamespace
+		sa.Name = name
+		sa.Status.Resource.ID = id
+		sa.Status.Resource.State = state
+		return sa
+	}
+	kc := kube.NewFakeClient(
+		newServiceAccount(referrerNamespace, "ci", "sa-ci", cloudcommon.ResourceStateActive),
+		newServiceAccount("shared", "deployer", "sa-deployer", cloudcommon.ResourceStateActive),
+		newServiceAccount(referrerNamespace, "pending", "", ""),
+		newServiceAccount(referrerNamespace, "activating", "sa-activating", cloudcommon.ResourceStateActivating),
+	)
+
+	cases := []struct {
+		name        string
+		refOrID     cloudcommon.ResourceReferenceOrID
+		expID       string
+		expNotReady bool
+	}{
+		{
+			name: "fail if the ref points to a missing service account",
+			refOrID: cloudcommon.ResourceReferenceOrID{
+				Ref: &cloudcommon.ResourceReference{Name: "nope"},
+			},
+			expNotReady: true,
+		},
+		{
+			name: "fail if the service account has no id yet",
+			refOrID: cloudcommon.ResourceReferenceOrID{
+				Ref: &cloudcommon.ResourceReference{Name: "pending"},
+			},
+			expNotReady: true,
+		},
+		{
+			name: "fail if the service account is still activating",
+			refOrID: cloudcommon.ResourceReferenceOrID{
+				Ref: &cloudcommon.ResourceReference{Name: "activating"},
+			},
+			expNotReady: true,
+		},
+		{
+			name:    "an id yields that id as is",
+			refOrID: cloudcommon.ResourceReferenceOrID{ID: "sa-legacy"},
+			expID:   "sa-legacy",
+		},
+		{
+			name: "a ref without a namespace yields the id of the service account in the referrer's namespace",
+			refOrID: cloudcommon.ResourceReferenceOrID{
+				Ref: &cloudcommon.ResourceReference{Name: "ci"},
+			},
+			expID: "sa-ci",
+		},
+		{
+			name: "a ref with a namespace yields the id of the service account in that namespace",
+			refOrID: cloudcommon.ResourceReferenceOrID{
+				Ref: &cloudcommon.ResourceReference{Namespace: "shared", Name: "deployer"},
+			},
+			expID: "sa-deployer",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(tt *testing.T) {
+			r := require.New(tt)
+			got, err := reference.ResolveServiceAccountID(context.TODO(), kc, referrerNamespace, tc.refOrID)
+			if tc.expNotReady {
+				r.ErrorIs(err, reference.ErrNotReady)
+				return
+			}
+			r.NoError(err)
+			r.Equal(tc.expID, got)
+		})
+	}
+}
+
 func TestReferenceCheck(t *testing.T) {
 	ref := func(namespace, name string) cloudcommon.ResourceReferenceOrID {
 		return cloudcommon.ResourceReferenceOrID{

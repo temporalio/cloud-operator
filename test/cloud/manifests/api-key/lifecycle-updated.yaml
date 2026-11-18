@@ -1,0 +1,15 @@
+apiVersion: cloud.temporal.io/v1alpha1
+kind: APIKey
+metadata:
+  name: tro-e2e-${RUN_ID}-key-life
+spec:
+  displayName: tro-e2e-${RUN_ID}-key-renamed
+  description: Cloud Operator test for create, update and delete.
+  owner:
+    serviceAccount:
+      ref:
+        name: tro-e2e-${RUN_ID}-key-sa
+  expiryTime: "${TEST_API_KEY_EXPIRY}"
+  token:
+    secretKeyRef:
+      name: tro-e2e-${RUN_ID}-key-life-token

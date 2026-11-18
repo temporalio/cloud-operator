@@ -5,8 +5,17 @@ metadata:
   name: temporal-cloud-operator
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - get
+  - update
+- apiGroups:
   - cloud.temporal.io
   resources:
+  - apikeys
   - namespaces
   - projects
   - serviceaccounts
@@ -21,6 +30,7 @@ rules:
 - apiGroups:
   - cloud.temporal.io
   resources:
+  - apikeys/finalizers
   - namespaces/finalizers
   - projects/finalizers
   - serviceaccounts/finalizers
@@ -29,6 +39,7 @@ rules:
 - apiGroups:
   - cloud.temporal.io
   resources:
+  - apikeys/status
   - namespaces/status
   - projects/status
   - serviceaccounts/status

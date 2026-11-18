@@ -4,6 +4,7 @@ import (
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 	kttestutilkube "github.com/temporalio/kube-temporal/pkg/testutil/kube"
 	"k8s.io/apimachinery/pkg/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -12,6 +13,7 @@ var (
 )
 
 func init() {
+	_ = clientgoscheme.AddToScheme(scheme)
 	_ = tcloudv1alpha1.AddToScheme(scheme)
 }
 

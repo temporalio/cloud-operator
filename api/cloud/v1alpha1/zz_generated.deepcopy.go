@@ -130,11 +130,7 @@ func (in *APIKeySpec) DeepCopyInto(out *APIKeySpec) {
 	*out = *in
 	in.Owner.DeepCopyInto(&out.Owner)
 	in.ExpiryTime.DeepCopyInto(&out.ExpiryTime)
-	if in.Token != nil {
-		in, out := &in.Token, &out.Token
-		*out = new(APIKeyToken)
-		(*in).DeepCopyInto(*out)
-	}
+	in.Token.DeepCopyInto(&out.Token)
 	return
 }
 

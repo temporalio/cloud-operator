@@ -11,9 +11,14 @@ $(TEMPORAL_CLOUD_CLI): | $(BIN_DIR)
 # PATH so gdt exec steps can call them by name.
 E2E_CLOUD_ENV = TEMPORAL_CLOUD_CLI="$(TEMPORAL_CLOUD_CLI)" PATH="$(SCRIPTS_DIR)/e2e:$$PATH"
 
-RUN_ID ?= $(USER)
+ifndef RUN_ID
+RUN_ID := $(USER)-$(shell date +%m%d%H%M)
+endif
+TEST_CLOUD_PATH ?= test/cloud
+TEST_API_KEY_EXPIRY ?= $(shell date -u -v+25H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '+25 hours' +%Y-%m-%dT%H:%M:%SZ)
 CLOUD_GDT = PATH="$(BIN_DIR):$$PATH" TEMPORAL_API_KEY="$$TEMPORAL_CLOUD_API_KEY" \
 	TEST_KUBE_CONTEXT="$(TEST_KUBE_CONTEXT)" RUN_ID="$(RUN_ID)" \
+	TEST_API_KEY_EXPIRY="$(TEST_API_KEY_EXPIRY)" \
 	$(GDT) $(or $(TEST_GDT_ARGS),-d) run
 
 ##@ Test (Temporal Cloud)
@@ -26,11 +31,13 @@ test-cloud-preflight: $(TEMPORAL_CLOUD_CLI) ## Check the Temporal Cloud e2e API 
 	@$(E2E_CLOUD_ENV) e2e-cloud preflight
 
 .PHONY: test-cloud
-test-cloud: test-cloud-api-key $(KIND) $(GDT) $(TEMPORAL_CLOUD_CLI) test-cluster-reset test-deploy ## Run the operator tests in test/cloud against Temporal Cloud.
+test-cloud: test-cloud-api-key $(KIND) $(GDT) $(TEMPORAL_CLOUD_CLI) test-cluster-reset test-deploy ## Run the operator tests in TEST_CLOUD_PATH against Temporal Cloud.
 	@echo "run ID: $(RUN_ID)"
-	@$(CLOUD_GDT) "$(abspath test/cloud)" || { \
+	@$(CLOUD_GDT) "$(abspath $(TEST_CLOUD_PATH))" || { \
 		"$(KUBECTL)" --context "$(TEST_KUBE_CONTEXT)" -n "$(TEST_OPERATOR_NAMESPACE)" \
 			logs deployment/temporal-cloud-operator; \
+		"$(KUBECTL)" --context "$(TEST_KUBE_CONTEXT)" \
+			get projects,namespaces.cloud.temporal.io,serviceaccounts.cloud.temporal.io,apikeys -A -o yaml; \
 		exit 1; }
 
 .PHONY: test-cloud-api-key
