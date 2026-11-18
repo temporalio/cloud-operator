@@ -139,9 +139,7 @@ tests:
    require:
      exit-code: 1
      err:
-       contains-one-of:
-         - NotFound
-         - not found
+       contains: NotFound
 
  - name: delete-service-account
    kube.delete: serviceaccounts.cloud.temporal.io/tro-e2e-${RUN_ID}-key-sa
@@ -154,6 +152,4 @@ tests:
    require:
      exit-code: 1
      err:
-       contains-one-of:
-         - NotFound
-         - not found
+       contains: NotFound
