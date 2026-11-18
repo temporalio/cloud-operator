@@ -100,6 +100,26 @@ func ResolveServiceAccountID(
 	)
 }
 
+// ResolveProjectID returns the Temporal Cloud ID of the Project that refOrID
+// refers to, once that Project is Active.
+func ResolveProjectID(
+	ctx context.Context,
+	kr client.Reader,
+	referrerNamespace string,
+	refOrID cloudcommon.ResourceReferenceOrID,
+) (string, error) {
+	return ResolveID(
+		ctx, kr, referrerNamespace, refOrID,
+		&tcloudv1alpha1.Project{},
+		func(p *tcloudv1alpha1.Project) string {
+			if p.Status.Resource.State != cloudcommon.ResourceStateActive {
+				return ""
+			}
+			return p.Status.Resource.ID
+		},
+	)
+}
+
 // Check collects the references in a spec that can't be sent to
 // Temporal Cloud yet.
 type Check struct {
