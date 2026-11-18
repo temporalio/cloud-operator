@@ -18,7 +18,7 @@ import (
 // +kubebuilder:printcolumn:name="ID",type=string,JSONPath=`.status.resource.id`
 // +kubebuilder:printcolumn:name="State",type=string,JSONPath=`.status.resource.state`
 // +kubebuilder:printcolumn:name="Display Name",type=string,JSONPath=`.spec.displayName`
-// +kubebuilder:printcolumn:name="Expiry",type=date,JSONPath=`.spec.expiryTime`
+// +kubebuilder:printcolumn:name="Expiry",type=string,JSONPath=`.spec.expiryTime`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 type APIKey struct {
 	metav1.TypeMeta   `json:",inline"`

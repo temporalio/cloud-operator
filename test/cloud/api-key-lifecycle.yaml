@@ -1,0 +1,159 @@
+name: api-key-lifecycle
+description: |
+  The operator creates, updates and deletes a Temporal Cloud API key owned by an
+  account scoped service account, and stores the key's token in a Secret. Each
+  change is made to the APIKey resource and checked in Temporal Cloud with the
+  Temporal Cloud CLI. Run with `make test-cloud`.
+
+depends:
+  - name: temporal-cloud
+
+defaults:
+  kube:
+    context: $TEST_KUBE_CONTEXT
+    namespace: tco-test-cloud-key-life
+
+tests:
+ - name: operator-api-key
+   kube:
+     namespace: temporal-cloud-operator
+     apply: manifests/operator/api-key.yaml
+
+ - name: operator-ready
+   kube:
+     namespace: temporal-cloud-operator
+     get: deployments/temporal-cloud-operator
+   timeout: 3m
+   retry:
+     interval: 5s
+   require:
+     conditions:
+       available: true
+
+ - name: create-service-account
+   kube.create: manifests/api-key/service-account.yaml
+
+ - name: service-account-active
+   kube.get: serviceaccounts.cloud.temporal.io/tro-e2e-${RUN_ID}-key-sa
+   timeout: 5m
+   retry:
+     interval: 10s
+   require:
+     matches:
+       status:
+         resource:
+           state: Active
+   var:
+     SERVICE_ACCOUNT_ID:
+       from: $.status.resource.id
+
+ - name: create
+   kube.create: manifests/api-key/lifecycle.yaml
+
+ - name: active
+   kube.get: apikeys.cloud.temporal.io/tro-e2e-${RUN_ID}-key-life
+   timeout: 2m
+   retry:
+     interval: 10s
+   require:
+     matches:
+       status:
+         resource:
+           state: Active
+   var:
+     RESOURCE_ID:
+       from: $.status.resource.id
+
+ - name: active-in-cloud
+   exec: temporal-cloud apikey get --key-id $$RESOURCE_ID --output json
+   timeout: 2m
+   retry:
+     interval: 10s
+   require:
+     out:
+       contains:
+         - RESOURCE_STATE_ACTIVE
+         - '"ownerId": "$$SERVICE_ACCOUNT_ID"'
+         - '"displayName": "tro-e2e-${RUN_ID}-key-life"'
+
+ - name: token-secret-controlled-by-api-key
+   exec: >-
+     kubectl --context $TEST_KUBE_CONTEXT -n tco-test-cloud-key-life
+     get secret tro-e2e-${RUN_ID}-key-life-token
+     -o jsonpath='{.metadata.ownerReferences[0].kind}/{.metadata.ownerReferences[0].name}/{.metadata.ownerReferences[0].controller}'
+   require:
+     out:
+       is: APIKey/tro-e2e-${RUN_ID}-key-life/true
+
+ - name: token-authenticates-as-service-account
+   exec: >-
+     TEMPORAL_API_KEY="$(kubectl --context $TEST_KUBE_CONTEXT -n tco-test-cloud-key-life
+     get secret tro-e2e-${RUN_ID}-key-life-token -o jsonpath='{.data.token}' | base64 -d)"
+     temporal-cloud whoami --output json
+   shell: sh
+   timeout: 1m
+   retry:
+     interval: 5s
+   require:
+     out:
+       contains:
+         - '"id": "$$SERVICE_ACCOUNT_ID"'
+         - '"id": "$$RESOURCE_ID"'
+
+ - name: update
+   kube.apply: manifests/api-key/lifecycle-updated.yaml
+
+ - name: updated-in-cloud
+   exec: temporal-cloud apikey get --key-id $$RESOURCE_ID --output json
+   timeout: 2m
+   retry:
+     interval: 10s
+   require:
+     out:
+       contains: '"displayName": "tro-e2e-${RUN_ID}-key-renamed"'
+
+ - name: delete
+   kube.delete: apikeys.cloud.temporal.io/tro-e2e-${RUN_ID}-key-life
+
+ - name: deleted
+   kube.get: apikeys.cloud.temporal.io
+   timeout: 5m
+   retry:
+     interval: 10s
+   require:
+     len: 0
+
+ - name: token-secret-deleted
+   kube.get: secrets/tro-e2e-${RUN_ID}-key-life-token
+   timeout: 1m
+   retry:
+     interval: 5s
+   require:
+     notfound: true
+
+ - name: deleted-in-cloud
+   exec: temporal-cloud apikey get --key-id $$RESOURCE_ID
+   timeout: 2m
+   retry:
+     interval: 10s
+   require:
+     exit-code: 1
+     err:
+       contains-one-of:
+         - NotFound
+         - not found
+
+ - name: delete-service-account
+   kube.delete: serviceaccounts.cloud.temporal.io/tro-e2e-${RUN_ID}-key-sa
+
+ - name: service-account-deleted-in-cloud
+   exec: temporal-cloud service-account get --service-account-id $$SERVICE_ACCOUNT_ID
+   timeout: 5m
+   retry:
+     interval: 10s
+   require:
+     exit-code: 1
+     err:
+       contains-one-of:
+         - NotFound
+         - not found

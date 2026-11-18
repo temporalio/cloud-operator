@@ -8,6 +8,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/spf13/pflag"
 	"k8s.io/apimachinery/pkg/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrlrt "sigs.k8s.io/controller-runtime"
 	ctrlrtcache "sigs.k8s.io/controller-runtime/pkg/cache"
@@ -15,6 +16,7 @@ import (
 	ctrlrtlog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
+	ctrlapikey "github.com/temporalio/cloud-operator/controller/apikey"
 	ctrlnamespace "github.com/temporalio/cloud-operator/controller/namespace"
 	ctrlproject "github.com/temporalio/cloud-operator/controller/project"
 	ctrlserviceaccount "github.com/temporalio/cloud-operator/controller/serviceaccount"
@@ -37,6 +39,7 @@ var (
 )
 
 func init() {
+	_ = clientgoscheme.AddToScheme(scheme)
 	_ = tcloudv1alpha1.AddToScheme(scheme)
 }
 
@@ -103,6 +106,11 @@ func main() {
 			base.WithDefaultCloudClient(*tcc),
 		),
 		ctrlproject.New(
+			cfg,
+			rootLogger,
+			base.WithDefaultCloudClient(*tcc),
+		),
+		ctrlapikey.New(
 			cfg,
 			rootLogger,
 			base.WithDefaultCloudClient(*tcc),
