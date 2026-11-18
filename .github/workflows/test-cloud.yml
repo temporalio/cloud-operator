@@ -1,6 +1,9 @@
 name: test-cloud
 
 on:
+  schedule:
+    # Runs at 16:00 UTC daily.
+    - cron: '0 16 * * *'
   workflow_dispatch:
 
 permissions:
