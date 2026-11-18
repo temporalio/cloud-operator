@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	cloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 	"github.com/temporalio/cloud-operator/pkg/resource/reference"
 	"github.com/temporalio/cloud-operator/pkg/types"
@@ -97,7 +98,7 @@ func (r *Reconciler) resolveReferences(
 	if namespace == "" {
 		namespace = cr.Namespace
 	}
-	out.ServiceAccount = &tcloudv1alpha1.ServiceAccountResolvedReference{
+	out.ServiceAccount = &cloudcommon.ResolvedReference{
 		Namespace: namespace, Name: owner.Ref.Name, ID: id,
 	}
 	return out, nil

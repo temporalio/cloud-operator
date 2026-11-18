@@ -122,7 +122,7 @@ func ownerServiceAccount(state cloudcommon.ResourceState) *tcloudv1alpha1.Servic
 // resolvedRefs returns the references of newAPIKey with its owner resolved.
 func resolvedRefs() tcloudv1alpha1.APIKeyReferences {
 	return tcloudv1alpha1.APIKeyReferences{
-		ServiceAccount: &tcloudv1alpha1.ServiceAccountResolvedReference{
+		ServiceAccount: &cloudcommon.ResolvedReference{
 			Namespace: kubeNamespace, Name: saName, ID: saID,
 		},
 	}
