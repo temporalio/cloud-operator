@@ -1,6 +1,9 @@
 name: test-cloud
 
 on:
+  schedule:
+    # Runs at 16:00 UTC daily.
+    - cron: '0 16 * * *'
   workflow_dispatch:
 
 permissions:
@@ -27,8 +30,10 @@ jobs:
         check-latest: true
         cache: true
 
+    # Set the toolchain to auto so that temporal-cloud CLI can use Go 1.27
+    # TODO: remove GOTOOLCHAIN=auto once go.mod requires Go 1.27 or later.
     - name: run-tests
-      run: make test-cloud
+      run: GOTOOLCHAIN=auto make test-cloud
       env:
         TEMPORAL_CLOUD_API_KEY: ${{ secrets.TEMPORAL_CLOUD_API_KEY }}
         RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
