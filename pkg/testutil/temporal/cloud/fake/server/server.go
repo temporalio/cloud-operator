@@ -28,6 +28,7 @@ type fakeServer struct {
 
 	createApiKeyFunc CreateApiKeyFunc
 	getApiKeyFunc    GetApiKeyFunc
+	updateApiKeyFunc UpdateApiKeyFunc
 
 	createProjectFunc CreateProjectFunc
 	getProjectFunc    GetProjectFunc

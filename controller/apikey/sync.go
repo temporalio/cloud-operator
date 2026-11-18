@@ -10,6 +10,7 @@ import (
 	"github.com/temporalio/kube-temporal/pkg/controller/requeue"
 	kttypes "github.com/temporalio/kube-temporal/pkg/types"
 	tcloudservicev1 "go.temporal.io/cloud-sdk/api/cloudservice/v1"
+	"google.golang.org/protobuf/proto"
 
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 	"github.com/temporalio/cloud-operator/pkg/resource/reference"
@@ -18,8 +19,8 @@ import (
 )
 
 // ResourceSync creates the Temporal Cloud API key and its token Secret if the
-// key doesn't exist yet. It returns a copy of `latest` with any status
-// changes.
+// key doesn't exist yet, and otherwise updates the key to match `desired`. It
+// returns a copy of `latest` with any status changes.
 //
 // `desired` is NEVER mutated.
 // `latest` is NEVER mutated.
@@ -55,8 +56,8 @@ func (r *Reconciler) ResourceSync(
 		return updated, err
 	}
 
-	// TODO(tomba): update the mutable fields of an existing API key.
-	return updated, nil
+	err = updateAPIKey(ctx, tcc, desiredKey, latest.CR().(*tcloudv1alpha1.APIKey))
+	return updated, err
 }
 
 // createAPIKey creates the Temporal Cloud API key for the supplied `desired`
@@ -97,6 +98,62 @@ func (r *Reconciler) createAPIKey(
 	}
 	return requeue.NeededAfter(
 		fmt.Errorf("created tcloud api key %q, waiting for activation", keyID),
+		requeue.DefaultRequeueAfterDuration,
+	)
+}
+
+// updateAPIKey sends at most one update per reconcile. Temporal Cloud applies
+// it asynchronously, so the next reconcile observes the result.
+func updateAPIKey(
+	ctx context.Context,
+	tcc tcloudservicev1.CloudServiceClient,
+	desired *tcloudv1alpha1.APIKey,
+	latest *tcloudv1alpha1.APIKey,
+) error {
+	refs := latest.Status.References
+	if err := checkReferences(desired, refs); err != nil {
+		return err
+	}
+	want := desired.Spec.ToProto(desired.Namespace, refs)
+
+	resourceID := latest.Status.Resource.ID
+	err := cloud.RequireActive("api key", resourceID, latest.Status.Resource.State)
+	if err != nil {
+		return err
+	}
+
+	// latest's spec comes from Temporal Cloud, so its owner is already an ID.
+	var none tcloudv1alpha1.APIKeyReferences
+	got := latest.Spec.ToProto(latest.Namespace, none)
+
+	// The owner can't be changed, but a ref can resolve to a new ID, for example
+	// when its ServiceAccount is recreated.
+	if want.GetOwnerId() != got.GetOwnerId() {
+		return ctrlerrors.NewTerminalError(
+			fmt.Errorf(
+				"%w: tcloud api key %q is owned by service account %q but spec.owner.serviceAccount is %q",
+				ctrlerrors.ErrResourceSync, resourceID, got.GetOwnerId(), want.GetOwnerId(),
+			),
+		)
+	}
+
+	// This sync runs on most reconciles, even when nothing changed, for example
+	// because desired names the owner by ref and latest by ID. Only send an
+	// update when Temporal Cloud would see a difference.
+	if proto.Equal(want, got) {
+		return nil
+	}
+
+	_, err = tcc.UpdateApiKey(ctx, &tcloudservicev1.UpdateApiKeyRequest{
+		KeyId:           resourceID,
+		Spec:            want,
+		ResourceVersion: latest.Status.Resource.Version,
+	})
+	if err != nil {
+		return cloud.CallError("updating tcloud api key", err)
+	}
+	return requeue.NeededAfter(
+		fmt.Errorf("updated tcloud api key %q, waiting for update to complete", resourceID),
 		requeue.DefaultRequeueAfterDuration,
 	)
 }

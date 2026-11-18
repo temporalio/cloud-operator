@@ -137,3 +137,69 @@ func (s fakeServer) GetApiKey(
 	}
 	return s.UnimplementedCloudServiceServer.GetApiKey(ctx, req)
 }
+
+type UpdateApiKeyFunc func(
+	context.Context,
+	*tcloudservicev1.UpdateApiKeyRequest,
+) (*tcloudservicev1.UpdateApiKeyResponse, error)
+
+// WithUpdateApiKey sets the fake server's UpdateApiKey function override.
+func WithUpdateApiKey(fn UpdateApiKeyFunc) NewOption {
+	return func(s *fakeServer) {
+		s.updateApiKeyFunc = fn
+	}
+}
+
+// OnUpdateApiKey lets tests validate arguments passed to UpdateApiKey and set
+// its response.
+func OnUpdateApiKey(
+	asserter func(*tcloudservicev1.UpdateApiKeyRequest),
+	returner func() (*tcloudservicev1.UpdateApiKeyResponse, error),
+) NewOption {
+	return func(s *fakeServer) {
+		fn := func(
+			ctx context.Context, req *tcloudservicev1.UpdateApiKeyRequest,
+		) (*tcloudservicev1.UpdateApiKeyResponse, error) {
+			if asserter != nil {
+				asserter(req)
+			}
+			if returner == nil {
+				return &tcloudservicev1.UpdateApiKeyResponse{}, nil
+			}
+			resp, err := returner()
+			if resp == nil && err == nil {
+				resp = &tcloudservicev1.UpdateApiKeyResponse{}
+			}
+			return resp, err
+		}
+		s.updateApiKeyFunc = fn
+	}
+}
+
+// OnUpdateApiKeyReturn sets the response returned by UpdateApiKey.
+func OnUpdateApiKeyReturn(
+	resp *tcloudservicev1.UpdateApiKeyResponse,
+	err error,
+) NewOption {
+	if resp == nil && err == nil {
+		resp = &tcloudservicev1.UpdateApiKeyResponse{}
+	}
+	return func(s *fakeServer) {
+		fn := func(
+			context.Context, *tcloudservicev1.UpdateApiKeyRequest,
+		) (*tcloudservicev1.UpdateApiKeyResponse, error) {
+			return resp, err
+		}
+		s.updateApiKeyFunc = fn
+	}
+}
+
+func (s fakeServer) UpdateApiKey(
+	ctx context.Context,
+	req *tcloudservicev1.UpdateApiKeyRequest,
+) (*tcloudservicev1.UpdateApiKeyResponse, error) {
+	if s.updateApiKeyFunc != nil {
+		return s.updateApiKeyFunc(ctx, req)
+	}
+	return s.UnimplementedCloudServiceServer.UpdateApiKey(ctx, req)
+}
