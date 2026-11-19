@@ -1,0 +1,15 @@
+---
+apiVersion: cloud.temporal.io/v1alpha1
+kind: Namespace
+metadata:
+  name: tro-e2e-${RUN_ID}-refs-ns
+spec:
+  description: Cloud Operator test for resources applied together by ref.
+  project:
+    ref:
+      name: tro-e2e-${RUN_ID}-refs-p
+  replicas:
+    - region: aws-us-west-2
+  retentionDays: 1
+  apiKeyAuth:
+    enabled: true
