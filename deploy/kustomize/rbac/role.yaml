@@ -19,6 +19,7 @@ rules:
   - namespaces
   - projects
   - serviceaccounts
+  - users
   verbs:
   - create
   - delete
@@ -34,6 +35,7 @@ rules:
   - namespaces/finalizers
   - projects/finalizers
   - serviceaccounts/finalizers
+  - users/finalizers
   verbs:
   - update
 - apiGroups:
@@ -43,6 +45,7 @@ rules:
   - namespaces/status
   - projects/status
   - serviceaccounts/status
+  - users/status
   verbs:
   - get
   - patch
