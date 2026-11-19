@@ -92,6 +92,26 @@ func (s UserSpec) FromProto(in *tcloudidentityv1.UserSpec) UserSpec {
 	}
 }
 
+// ToProto returns the Temporal Cloud UserSpec for the spec, with each
+// Namespace ref replaced by its ID from `refs`.
+func (s UserSpec) ToProto(
+	referrerNamespace string,
+	refs UserReferences,
+) *tcloudidentityv1.UserSpec {
+	namespaceID := func(namespace cloudcommon.ResourceReferenceOrID) string {
+		if namespace.Ref == nil {
+			return namespace.ID
+		}
+		id, _ := refs.NamespaceID(*namespace.Ref, referrerNamespace)
+		return id
+	}
+
+	return &tcloudidentityv1.UserSpec{
+		Email:  s.Email,
+		Access: s.Access.toProto(namespaceID),
+	}
+}
+
 // UserStatus describes the current status of a Temporal Cloud User.
 // +k8s:openapi-gen=true
 type UserStatus struct {
@@ -120,6 +140,24 @@ type UserReferences struct {
 	// +listMapKey=namespace
 	// +listMapKey=name
 	Namespaces []NamespaceResolvedReference `json:"namespaces,omitempty"`
+}
+
+// NamespaceID returns the Temporal Cloud ID of the Namespace CR that the
+// supplied reference points to, and whether it has been resolved.
+func (r UserReferences) NamespaceID(
+	ref cloudcommon.ResourceReference,
+	referrerNamespace string,
+) (string, bool) {
+	namespace := ref.Namespace
+	if namespace == "" {
+		namespace = referrerNamespace
+	}
+	for _, resolved := range r.Namespaces {
+		if resolved.Namespace == namespace && resolved.Name == ref.Name {
+			return resolved.ID, true
+		}
+	}
+	return "", false
 }
 
 // UserInvitation describes the invitation Temporal Cloud sent to a User.
