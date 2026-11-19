@@ -127,7 +127,7 @@ func cloudSpec() *tcloudidentityv1.UserSpec {
 
 func resolvedRefs(namespaceID string) tcloudv1alpha1.UserReferences {
 	return tcloudv1alpha1.UserReferences{
-		Namespaces: []tcloudv1alpha1.NamespaceResolvedReference{
+		Namespaces: []cloudcommon.ResolvedReference{
 			{Namespace: kubeNamespace, Name: nsName, ID: namespaceID},
 		},
 	}

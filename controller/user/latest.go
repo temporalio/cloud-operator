@@ -106,7 +106,7 @@ func (r *Reconciler) resolveReferences(
 		if err != nil {
 			return out, err
 		}
-		out.Namespaces = append(out.Namespaces, tcloudv1alpha1.NamespaceResolvedReference{
+		out.Namespaces = append(out.Namespaces, cloudcommon.ResolvedReference{
 			Namespace: key.Namespace, Name: key.Name, ID: id,
 		})
 	}
