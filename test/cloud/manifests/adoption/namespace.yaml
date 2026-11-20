@@ -1,0 +1,8 @@
+---
+apiVersion: cloud.temporal.io/v1alpha1
+kind: Namespace
+metadata:
+  name: tro-e2e-${RUN_ID}-adopt-ns
+  annotations:
+    cloud.temporal.io/adoption-policy: adopt
+    cloud.temporal.io/resource-id: ${NAMESPACE_ID}
