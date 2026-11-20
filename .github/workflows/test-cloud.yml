@@ -30,6 +30,9 @@ jobs:
         check-latest: true
         cache: true
 
+    - name: install-envsubst
+      run: sudo apt-get update && sudo apt-get install -y gettext-base
+
     # Set the toolchain to auto so that temporal-cloud CLI can use Go 1.27
     # TODO: remove GOTOOLCHAIN=auto once go.mod requires Go 1.27 or later.
     - name: run-tests

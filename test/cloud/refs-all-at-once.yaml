@@ -33,6 +33,8 @@ tests:
      conditions:
        available: true
 
+ # gdt creates the tco-test-cloud-refs namespace on this first kube step,
+ # which is needed by the kubectl apply -f in the next step.
  - name: create-test-namespace
    kube.get: projects.cloud.temporal.io
    require:
@@ -40,21 +42,11 @@ tests:
 
  - name: apply-all
    exec: >-
-     sed -e 's/$${RUN_ID}/${RUN_ID}/g'
-     -e 's/$${TEST_API_KEY_EXPIRY}/${TEST_API_KEY_EXPIRY}/g'
-     manifests/refs/*.yaml |
+     cat manifests/refs/*.yaml | envsubst |
      kubectl --context $TEST_KUBE_CONTEXT -n tco-test-cloud-refs apply -f -
    shell: sh
-   require:
-     out:
-       contains:
-         - project.cloud.temporal.io/tro-e2e-${RUN_ID}-refs-p created
-         - namespace.cloud.temporal.io/tro-e2e-${RUN_ID}-refs-ns created
-         - serviceaccount.cloud.temporal.io/tro-e2e-${RUN_ID}-refs-proj-sa created
-         - serviceaccount.cloud.temporal.io/tro-e2e-${RUN_ID}-refs-ns-sa created
-         - apikey.cloud.temporal.io/tro-e2e-${RUN_ID}-refs-key created
 
- - name: project-active
+ - name: project-active-not-stalled
    kube.get: projects.cloud.temporal.io/tro-e2e-${RUN_ID}-refs-p
    timeout: 5m
    retry:
@@ -64,11 +56,14 @@ tests:
        status:
          resource:
            state: Active
+     conditions:
+       stalled:
+         status: false
    var:
      PROJECT_ID:
        from: $.status.resource.id
 
- - name: namespace-active
+ - name: namespace-active-not-stalled
    kube.get: namespaces.cloud.temporal.io/tro-e2e-${RUN_ID}-refs-ns
    timeout: 10m
    retry:
@@ -78,11 +73,14 @@ tests:
        status:
          resource:
            state: Active
+     conditions:
+       stalled:
+         status: false
    var:
      NAMESPACE_ID:
        from: $.status.resource.id
 
- - name: project-service-account-active
+ - name: project-service-account-active-not-stalled
    kube.get: serviceaccounts.cloud.temporal.io/tro-e2e-${RUN_ID}-refs-proj-sa
    timeout: 5m
    retry:
@@ -92,11 +90,14 @@ tests:
        status:
          resource:
            state: Active
+     conditions:
+       stalled:
+         status: false
    var:
      PROJECT_SERVICE_ACCOUNT_ID:
        from: $.status.resource.id
 
- - name: namespace-service-account-active
+ - name: namespace-service-account-active-not-stalled
    kube.get: serviceaccounts.cloud.temporal.io/tro-e2e-${RUN_ID}-refs-ns-sa
    timeout: 5m
    retry:
@@ -106,11 +107,14 @@ tests:
        status:
          resource:
            state: Active
+     conditions:
+       stalled:
+         status: false
    var:
      NAMESPACE_SERVICE_ACCOUNT_ID:
        from: $.status.resource.id
 
- - name: api-key-active
+ - name: api-key-active-not-stalled
    kube.get: apikeys.cloud.temporal.io/tro-e2e-${RUN_ID}-refs-key
    timeout: 5m
    retry:
@@ -120,23 +124,12 @@ tests:
        status:
          resource:
            state: Active
+     conditions:
+       stalled:
+         status: false
    var:
      API_KEY_ID:
        from: $.status.resource.id
-
- - name: none-stalled
-   exec: >-
-     kubectl --context $TEST_KUBE_CONTEXT -n tco-test-cloud-refs get
-     projects.cloud.temporal.io,namespaces.cloud.temporal.io,serviceaccounts.cloud.temporal.io,apikeys.cloud.temporal.io
-     -o jsonpath='{range .items[*]}{.metadata.name}={.status.conditions[?(@.type=="Stalled")].status} {end}'
-   require:
-     out:
-       contains:
-         - tro-e2e-${RUN_ID}-refs-p=False
-         - tro-e2e-${RUN_ID}-refs-ns=False
-         - tro-e2e-${RUN_ID}-refs-proj-sa=False
-         - tro-e2e-${RUN_ID}-refs-ns-sa=False
-         - tro-e2e-${RUN_ID}-refs-key=False
 
  - name: project-active-in-cloud
    exec: temporal-cloud project get --project-id $$PROJECT_ID --output json
@@ -198,9 +191,7 @@ tests:
 
  - name: delete-all
    exec: >-
-     sed -e 's/$${RUN_ID}/${RUN_ID}/g'
-     -e 's/$${TEST_API_KEY_EXPIRY}/${TEST_API_KEY_EXPIRY}/g'
-     manifests/refs/*.yaml |
+     cat manifests/refs/*.yaml | envsubst |
      kubectl --context $TEST_KUBE_CONTEXT -n tco-test-cloud-refs delete --wait=false -f -
    shell: sh
 
