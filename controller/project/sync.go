@@ -3,6 +3,7 @@ package project
 import (
 	"context"
 	"fmt"
+	"time"
 
 	ctrlreqlog "github.com/temporalio/kube-temporal/pkg/controller/request/log"
 	"github.com/temporalio/kube-temporal/pkg/controller/requeue"
@@ -12,6 +13,7 @@ import (
 
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 	"github.com/temporalio/cloud-operator/pkg/ptr"
+	"github.com/temporalio/cloud-operator/pkg/reconciler/adoption"
 	"github.com/temporalio/cloud-operator/pkg/temporal/cloud"
 	"github.com/temporalio/cloud-operator/pkg/types"
 )
@@ -34,6 +36,13 @@ func (r *Reconciler) ResourceSync(
 		exit(err)
 	}()
 
+	desiredRes := desired.(types.Resource)
+	if adoption.Wanted(desiredRes) {
+		var adopted kttypes.Resource
+		adopted, err = adoption.Adopt(desiredRes, latest.(types.Resource), resourceKind, time.Now(), nil)
+		return adopted, err
+	}
+
 	updated := latest.DeepCopy()
 
 	tcc, err := r.CloudClientFor(ctx, desired)
@@ -43,6 +52,9 @@ func (r *Reconciler) ResourceSync(
 
 	desiredProject := desired.CR().(*tcloudv1alpha1.Project)
 	if !latest.(types.Resource).PreviouslyReconciled() {
+		if err = adoption.CheckNotRecreated(desiredRes, resourceKind); err != nil {
+			return adoption.Unchanged(desiredRes), err
+		}
 		err = createProject(
 			ctx, tcc, desiredProject, updated.CR().(*tcloudv1alpha1.Project),
 		)

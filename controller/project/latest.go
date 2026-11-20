@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	cloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 	"github.com/temporalio/cloud-operator/pkg/types"
 )
@@ -39,25 +40,45 @@ func (r *Reconciler) ResourceLatest(
 
 	cr := latest.CR().(*tcloudv1alpha1.Project)
 
+	getProject := func(id string) (*tcloudprojectv1.Project, error) {
+		resp, err := tcc.GetProject(ctx, &tcloudservicev1.GetProjectRequest{
+			ProjectId: id,
+		})
+		if status.Code(err) == codes.NotFound {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		return resp.GetProject(), nil
+	}
+
 	// TODO: like the service account controller, this misses a project whose
 	// create succeeded but whose ID was never saved to status (for example
 	// because the operator restarted in between). Display names aren't a safe
 	// unique key to look it up by, so a duplicate project would be created.
 	var tp *tcloudprojectv1.Project
-	if latest.PreviouslyReconciled() {
-		var resp *tcloudservicev1.GetProjectResponse
-		resp, err = tcc.GetProject(ctx, &tcloudservicev1.GetProjectRequest{
-			ProjectId: latest.ResourceID(),
-		})
-		if status.Code(err) == codes.NotFound {
-			// The project was deleted outside of the operator. Treat it the
-			// same as one that was never created so ResourceSync recreates it
-			// in this pass.
-			err = nil
-		} else if err != nil {
+	switch {
+	case latest.PreviouslyReconciled():
+		// The project may have been deleted outside of the operator. Treat it
+		// the same as one that was never created so ResourceSync recreates it
+		// in this pass.
+		tp, err = getProject(latest.ResourceID())
+		if err != nil {
 			return latest, fmt.Errorf("failed getting tcloud project: %w", err)
 		}
-		tp = resp.GetProject()
+	case latest.AdoptionPolicy() == cloudcommon.AdoptionPolicyAdopt:
+		resourceID := latest.ResourceID()
+		tp, err = getProject(resourceID)
+		if err != nil {
+			return latest, fmt.Errorf("failed getting tcloud project %q to adopt: %w", resourceID, err)
+		}
+		// There's nothing to adopt. Without an error the controller would see
+		// no difference from the annotations-only CR and report success.
+		if tp == nil {
+			err = fmt.Errorf("no tcloud project with ID %q to adopt", resourceID)
+			return latest, err
+		}
 	}
 
 	if tp == nil {

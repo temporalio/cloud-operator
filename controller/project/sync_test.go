@@ -16,6 +16,7 @@ import (
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 	"github.com/temporalio/cloud-operator/controller/project"
 	fakeserver "github.com/temporalio/cloud-operator/pkg/testutil/temporal/cloud/fake/server"
+	"github.com/temporalio/cloud-operator/pkg/types"
 )
 
 // fixtures shared by the ResourceSync tests.
@@ -272,6 +273,86 @@ func TestReconciler_ResourceSync(t *testing.T) {
 			}
 			require.Equal(t, before.CR(), latest.CR(), "latest must not be mutated")
 			require.Equal(t, before.CR(), got.CR(), "update must not change status")
+		})
+	}
+}
+
+func TestReconciler_ResourceSync_Adopt(t *testing.T) {
+	adoptDesired := newAdoptProject()
+
+	// found is latest for the active project to adopt.
+	found := adoptDesired.DeepCopy()
+	found.Spec = tcloudv1alpha1.ProjectSpec{}.FromProto(cloudSpec())
+	found.Status.Resource = cloudcommon.ResourceStatus{
+		ID: projectID, Version: "rv-1", State: cloudcommon.ResourceStateActive,
+	}
+
+	// linked is desired for an adoption that saved the ID but not adopted-on.
+	linked := adoptDesired.DeepCopy()
+	linked.Status.Resource.ID = projectID
+
+	adopted := linked.DeepCopy()
+	adopted.Annotations[cloudcommon.AnnotationKeyAdoptedOn] = "2026-11-03T12:00:00Z"
+
+	// gone is latest for a project deleted outside of the operator.
+	gone := adoptDesired.DeepCopy()
+
+	cases := []struct {
+		name       string
+		desired    *tcloudv1alpha1.Project
+		latest     *tcloudv1alpha1.Project
+		expKind    string
+		expErr     string
+		expID      string
+		expAdopted bool
+		expSpec    tcloudv1alpha1.ProjectSpec
+	}{
+		{
+			name:    "a half-finished adoption's project is gone, so it requeues without creating one",
+			desired: linked,
+			latest:  gone,
+			expKind: kindRequeue,
+			expErr:  `no tcloud project with ID "project-1" to adopt`,
+			expID:   projectID,
+		},
+		{
+			name:       "an adopted project is gone, so it stops without recreating it",
+			desired:    adopted,
+			latest:     gone,
+			expKind:    kindTerminal,
+			expErr:     "no longer exists in Temporal Cloud",
+			expID:      projectID,
+			expAdopted: true,
+		},
+		{
+			name:       "the found project is active, so it's adopted with its spec from temporal cloud",
+			desired:    adoptDesired,
+			latest:     found,
+			expKind:    kindNil,
+			expID:      projectID,
+			expAdopted: true,
+			expSpec:    found.Spec,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newReconciler(t)
+			latest := project.NewResource(tc.latest.DeepCopy())
+			before := latest.DeepCopy()
+
+			got, err := r.ResourceSync(
+				context.TODO(), project.NewResource(tc.desired.DeepCopy()), latest,
+			)
+			require.Equal(t, tc.expKind, errKind(err), "err: %v", err)
+			if tc.expErr != "" {
+				require.ErrorContains(t, err, tc.expErr)
+			}
+
+			require.Equal(t, before.CR(), latest.CR(), "latest must not be mutated")
+			gotRes := got.(types.Resource)
+			require.Equal(t, tc.expID, gotRes.ResourceStatus().ID)
+			require.Equal(t, tc.expAdopted, gotRes.IsAdopted())
+			require.Equal(t, tc.expSpec, got.CR().(*tcloudv1alpha1.Project).Spec)
 		})
 	}
 }
