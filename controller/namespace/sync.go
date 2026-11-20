@@ -2,6 +2,7 @@ package namespace
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -16,6 +17,7 @@ import (
 	cloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 	"github.com/temporalio/cloud-operator/pkg/ptr"
+	"github.com/temporalio/cloud-operator/pkg/resource/reference"
 	"github.com/temporalio/cloud-operator/pkg/temporal/cloud"
 	"github.com/temporalio/cloud-operator/pkg/types"
 )
@@ -91,11 +93,20 @@ func (r *Reconciler) ResourceSync(
 
 		cr := desired.CR()
 		ns := cr.(*tcloudv1alpha1.Namespace)
+		projectID, err := r.resolveProjectID(ctx, ns)
+		if errors.Is(err, reference.ErrNotReady) {
+			check := reference.NewCheck(ns.Namespace)
+			check.Pending("spec.project", *ns.Spec.Project, "")
+			return updated, check.Err()
+		}
+		if err != nil {
+			return updated, err
+		}
 		tns := ns.ToProto()
 		resp, err := tcc.CreateNamespace(ctx, &tcloudservicev1.CreateNamespaceRequest{
 			Spec:      tns.GetSpec(),
 			Tags:      tns.GetTags(),
-			ProjectId: tns.GetProjectId(),
+			ProjectId: projectID,
 		})
 		if err != nil {
 			return updated, cloud.CallError("creating tcloud namespace", err)
@@ -109,15 +120,20 @@ func (r *Reconciler) ResourceSync(
 	desiredNS := desired.CR().(*tcloudv1alpha1.Namespace)
 	latestNS := latest.CR().(*tcloudv1alpha1.Namespace)
 
-	// If the CR specifies a project ID, it must match the project reported
-	// by Temporal Cloud. An unset project does not need this check.
-	if p := desiredNS.Spec.Project; p != nil && p.ID != "" && p.ID != latestNS.Status.References.Project {
+	// The namespace could be in another project when the CR is linked to an
+	// existing namespace, it was moved outside the operator, or the
+	// referenced Project was recreated.
+	projectID, err := r.resolveProjectID(ctx, desiredNS)
+	if err != nil && !errors.Is(err, reference.ErrNotReady) {
+		return updated, err
+	}
+	if projectID != "" && projectID != latestNS.Status.References.Project {
 		return updated, ctrlerrors.NewTerminalError(
 			fmt.Errorf(
 				"%w: tcloud namespace %q is in project %q "+
-					"but spec.project.id is %q",
+					"but spec.project is %q",
 				ctrlerrors.ErrResourceSync, resourceID,
-				latestNS.Status.References.Project, p.ID,
+				latestNS.Status.References.Project, projectID,
 			),
 		)
 	}
@@ -170,6 +186,19 @@ func (r *Reconciler) ResourceSync(
 	}
 
 	return updated, nil
+}
+
+// resolveProjectID returns the Temporal Cloud ID of the Project in the CR's
+// spec, or an empty string when the spec has none. The error wraps
+// [reference.ErrNotReady] while a referenced Project isn't Active yet.
+func (r *Reconciler) resolveProjectID(
+	ctx context.Context,
+	cr *tcloudv1alpha1.Namespace,
+) (string, error) {
+	if cr.Spec.Project == nil {
+		return "", nil
+	}
+	return reference.ResolveProjectID(ctx, r.KubeReader(), cr.Namespace, *cr.Spec.Project)
 }
 
 // specWithoutProjectAndTags returns a copy of the supplied spec with the

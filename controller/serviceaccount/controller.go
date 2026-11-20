@@ -12,8 +12,9 @@ import (
 // +kubebuilder:rbac:groups=cloud.temporal.io,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cloud.temporal.io,resources=serviceaccounts/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=cloud.temporal.io,resources=serviceaccounts/finalizers,verbs=update
-// Service accounts can reference Namespace custom resources.
+// Service accounts can reference Namespace and Project custom resources.
 // +kubebuilder:rbac:groups=cloud.temporal.io,resources=namespaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups=cloud.temporal.io,resources=projects,verbs=get;list;watch
 
 const (
 	ControllerName = "serviceaccount"

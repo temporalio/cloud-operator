@@ -56,6 +56,28 @@ func TestReconciler_ResourceSync_Create(t *testing.T) {
 	unresolved := notCreated.DeepCopy()
 	unresolved.Status.References = tcloudv1alpha1.ServiceAccountReferences{}
 
+	projectResolved := notCreated.DeepCopy()
+	projectResolved.Status.References.Projects = []cloudcommon.ResolvedReference{
+		{Namespace: kubeNamespace, Name: "payments", ID: "p-1"},
+	}
+
+	customRoleRef := projectRef.DeepCopy()
+	customRoleRef.Spec.ProjectScopedAccess = nil
+	customRoleRef.Spec.AccountScopedAccess = &tcloudv1alpha1.AccountScopedAccess{
+		AccountAccess: &tcloudv1alpha1.AccountAccess{
+			CustomRoles: []cloudcommon.ResourceReferenceOrID{ref("auditor")},
+		},
+	}
+
+	duplicateProjects := projectRef.DeepCopy()
+	duplicateProjects.Spec.ProjectScopedAccess = nil
+	duplicateProjects.Spec.AccountScopedAccess = &tcloudv1alpha1.AccountScopedAccess{
+		ProjectAccesses: []tcloudv1alpha1.ProjectAccessEntry{
+			{Project: ref("payments"), Access: tcloudv1alpha1.ProjectAccess{Role: tcloudv1alpha1.ProjectRoleRead}},
+			{Project: id("p-1"), Access: tcloudv1alpha1.ProjectAccess{Role: tcloudv1alpha1.ProjectRoleAdmin}},
+		},
+	}
+
 	// Empty exp fields mean "none": no error message to match and no ID saved.
 	cases := []struct {
 		name       string
@@ -102,11 +124,43 @@ func TestReconciler_ResourceSync_Create(t *testing.T) {
 			expErr:  "spec.namespaceScopedAccess.namespace (apps/payments)",
 		},
 		{
-			name:    "project refs aren't supported yet, so it fails",
+			name:    "a project ref has no id yet, so it waits without calling temporal cloud",
 			desired: projectRef,
 			latest:  notCreated,
+			expKind: kindRequeue,
+			expErr:  "spec.projectScopedAccess.project (apps/payments)",
+		},
+		{
+			name:    "a resolved project ref is created with the project's id",
+			desired: projectRef,
+			latest:  projectResolved,
+			serverOpts: []fakeserver.NewOption{
+				fakeserver.OnCreateServiceAccount(
+					func(req *tcloudservicev1.CreateServiceAccountRequest) {
+						assert.Equal(t, "p-1", req.GetSpec().GetProjectScopedAccess().GetProjectId())
+					},
+					func() (*tcloudservicev1.CreateServiceAccountResponse, error) {
+						return &tcloudservicev1.CreateServiceAccountResponse{ServiceAccountId: "sa-new"}, nil
+					},
+				),
+			},
+			expKind: kindRequeue,
+			expErr:  `created tcloud service account "sa-new"`,
+			expID:   "sa-new",
+		},
+		{
+			name:    "custom role refs aren't supported yet, so it fails",
+			desired: customRoleRef,
+			latest:  notCreated,
 			expKind: kindTerminal,
-			expErr:  "spec.projectScopedAccess.project",
+			expErr:  "spec.accountScopedAccess.accountAccess.customRoles[0]",
+		},
+		{
+			name:    "a project ref and an id for the same project, so it fails",
+			desired: duplicateProjects,
+			latest:  projectResolved,
+			expKind: kindTerminal,
+			expErr:  `projectAccesses[0].project and spec.accountScopedAccess.projectAccesses[1].project both refer to tcloud project "p-1"`,
 		},
 	}
 	for _, tc := range cases {

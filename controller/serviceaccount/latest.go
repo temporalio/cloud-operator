@@ -79,42 +79,69 @@ func (r *Reconciler) ResourceLatest(
 	return latest, nil
 }
 
-// resolveReferences returns the Temporal Cloud IDs of the Namespace custom
-// resources that the CR's spec refers to.
+// resolveReferences returns the Temporal Cloud IDs of the Namespace and
+// Project custom resources that the CR's spec refers to.
 func (r *Reconciler) resolveReferences(
 	ctx context.Context,
 	cr *tcloudv1alpha1.ServiceAccount,
 ) (tcloudv1alpha1.ServiceAccountReferences, error) {
 	var out tcloudv1alpha1.ServiceAccountReferences
-	// The spec might reference the same Namespace more than once by mistake.
-	// However, it is only listed once in the resolved references.
+	var err error
+	out.Namespaces, err = resolve(
+		ctx, r.KubeReader(), cr.Namespace, namespaceRefs(cr.Spec),
+		reference.ResolveNamespaceID,
+	)
+	if err != nil {
+		return out, err
+	}
+	out.Projects, err = resolve(
+		ctx, r.KubeReader(), cr.Namespace, projectRefs(cr.Spec),
+		reference.ResolveProjectID,
+	)
+	return out, err
+}
+
+// resolve returns a resolved reference for each custom resource in refs that
+// resolveID reports ready. Refs that aren't ready yet are left out.
+func resolve(
+	ctx context.Context,
+	kr client.Reader,
+	referrerNamespace string,
+	refs []specRef,
+	resolveID func(
+		context.Context, client.Reader, string, cloudcommon.ResourceReferenceOrID,
+	) (string, error),
+) ([]cloudcommon.ResolvedReference, error) {
+	var out []cloudcommon.ResolvedReference
+	// The spec might reference the same custom resource more than once by
+	// mistake. However, it is only listed once in the resolved references.
 	seen := map[client.ObjectKey]bool{}
-	for _, nr := range namespaceRefs(cr.Spec) {
-		key := client.ObjectKey{Namespace: nr.refOrID.Ref.Namespace, Name: nr.refOrID.Ref.Name}
+	for _, sr := range refs {
+		key := client.ObjectKey{Namespace: sr.refOrID.Ref.Namespace, Name: sr.refOrID.Ref.Name}
 		if key.Namespace == "" {
-			key.Namespace = cr.Namespace
+			key.Namespace = referrerNamespace
 		}
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
 
-		id, err := reference.ResolveNamespaceID(ctx, r.KubeReader(), cr.Namespace, nr.refOrID)
+		id, err := resolveID(ctx, kr, referrerNamespace, sr.refOrID)
 		if errors.Is(err, reference.ErrNotReady) {
 			continue
 		}
 		if err != nil {
 			return out, err
 		}
-		out.Namespaces = append(out.Namespaces, tcloudv1alpha1.NamespaceResolvedReference{
+		out = append(out, cloudcommon.ResolvedReference{
 			Namespace: key.Namespace, Name: key.Name, ID: id,
 		})
 	}
 	return out, nil
 }
 
-// namespaceRef is a Namespace ref in a ServiceAccount spec, with its path.
-type namespaceRef struct {
+// specRef is a ref in a ServiceAccount spec, with its path.
+type specRef struct {
 	path    string
 	refOrID cloudcommon.ResourceReferenceOrID
 }
@@ -122,11 +149,11 @@ type namespaceRef struct {
 // namespaceRefs returns every Namespace ref in the supplied spec, together
 // with where it sits in the spec, for example
 // spec.accountScopedAccess.namespaceAccesses[1].namespace.
-func namespaceRefs(spec tcloudv1alpha1.ServiceAccountSpec) []namespaceRef {
-	var out []namespaceRef
+func namespaceRefs(spec tcloudv1alpha1.ServiceAccountSpec) []specRef {
+	var out []specRef
 	add := func(path string, refOrID cloudcommon.ResourceReferenceOrID) {
 		if refOrID.Ref != nil {
-			out = append(out, namespaceRef{path: path, refOrID: refOrID})
+			out = append(out, specRef{path: path, refOrID: refOrID})
 		}
 	}
 	addEntries := func(path string, entries []tcloudv1alpha1.NamespaceScopedAccess) {
@@ -142,6 +169,28 @@ func namespaceRefs(spec tcloudv1alpha1.ServiceAccountSpec) []namespaceRef {
 		add("spec.namespaceScopedAccess.namespace", spec.NamespaceScopedAccess.Namespace)
 	case spec.ProjectScopedAccess != nil:
 		addEntries("spec.projectScopedAccess.namespaceAccesses", spec.ProjectScopedAccess.NamespaceAccesses)
+	}
+	return out
+}
+
+// projectRefs returns every Project ref in the supplied spec, together with
+// where it sits in the spec, for example
+// spec.accountScopedAccess.projectAccesses[1].project.
+func projectRefs(spec tcloudv1alpha1.ServiceAccountSpec) []specRef {
+	var out []specRef
+	add := func(path string, refOrID cloudcommon.ResourceReferenceOrID) {
+		if refOrID.Ref != nil {
+			out = append(out, specRef{path: path, refOrID: refOrID})
+		}
+	}
+
+	switch {
+	case spec.AccountScopedAccess != nil:
+		for i, e := range spec.AccountScopedAccess.ProjectAccesses {
+			add(fmt.Sprintf("spec.accountScopedAccess.projectAccesses[%d].project", i), e.Project)
+		}
+	case spec.ProjectScopedAccess != nil:
+		add("spec.projectScopedAccess.project", spec.ProjectScopedAccess.Project)
 	}
 	return out
 }

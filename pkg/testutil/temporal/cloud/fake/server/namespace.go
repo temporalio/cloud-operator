@@ -300,3 +300,52 @@ func (s fakeServer) UpdateNamespaceTags(
 	}
 	return s.UnimplementedCloudServiceServer.UpdateNamespaceTags(ctx, req)
 }
+
+type CreateNamespaceFunc func(
+	context.Context,
+	*tcloudservicev1.CreateNamespaceRequest,
+) (*tcloudservicev1.CreateNamespaceResponse, error)
+
+// WithCreateNamespace sets the fake server's CreateNamespace function
+// override.
+func WithCreateNamespace(fn CreateNamespaceFunc) NewOption {
+	return func(s *fakeServer) {
+		s.createNamespaceFunc = fn
+	}
+}
+
+// OnCreateNamespace lets tests validate arguments passed to CreateNamespace
+// and set its response.
+func OnCreateNamespace(
+	asserter func(*tcloudservicev1.CreateNamespaceRequest),
+	returner func() (*tcloudservicev1.CreateNamespaceResponse, error),
+) NewOption {
+	return func(s *fakeServer) {
+		fn := func(
+			ctx context.Context, req *tcloudservicev1.CreateNamespaceRequest,
+		) (*tcloudservicev1.CreateNamespaceResponse, error) {
+			if asserter != nil {
+				asserter(req)
+			}
+			if returner == nil {
+				return &tcloudservicev1.CreateNamespaceResponse{}, nil
+			}
+			resp, err := returner()
+			if resp == nil && err == nil {
+				resp = &tcloudservicev1.CreateNamespaceResponse{}
+			}
+			return resp, err
+		}
+		s.createNamespaceFunc = fn
+	}
+}
+
+func (s fakeServer) CreateNamespace(
+	ctx context.Context,
+	req *tcloudservicev1.CreateNamespaceRequest,
+) (*tcloudservicev1.CreateNamespaceResponse, error) {
+	if s.createNamespaceFunc != nil {
+		return s.createNamespaceFunc(ctx, req)
+	}
+	return s.UnimplementedCloudServiceServer.CreateNamespace(ctx, req)
+}

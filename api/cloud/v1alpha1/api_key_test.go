@@ -25,7 +25,7 @@ func serviceAccountRef(namespace, name string) cloudcommon.ResourceReferenceOrID
 
 func resolvedServiceAccount(namespace, name, id string) v1alpha1.APIKeyReferences {
 	return v1alpha1.APIKeyReferences{
-		ServiceAccount: &v1alpha1.ServiceAccountResolvedReference{
+		ServiceAccount: &cloudcommon.ResolvedReference{
 			Namespace: namespace, Name: name, ID: id,
 		},
 	}

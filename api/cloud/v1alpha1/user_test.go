@@ -20,7 +20,7 @@ func userCR() tcloudv1alpha1.User {
 	u := tcloudv1alpha1.User{}
 	u.Name = "alice"
 	u.Namespace = "apps"
-	u.Status.References.Namespaces = []tcloudv1alpha1.NamespaceResolvedReference{
+	u.Status.References.Namespaces = []cloudcommon.ResolvedReference{
 		{Namespace: "apps", Name: "payments", ID: "payments.acct"},
 	}
 	return u
