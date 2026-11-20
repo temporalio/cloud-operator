@@ -49,21 +49,41 @@ func (r *Reconciler) ResourceLatest(
 		return latest, fmt.Errorf("failed resolving references: %w", err)
 	}
 
-	var tsa *tcloudidentityv1.ServiceAccount
-	if latest.PreviouslyReconciled() {
-		var resp *tcloudservicev1.GetServiceAccountResponse
-		resp, err = tcc.GetServiceAccount(ctx, &tcloudservicev1.GetServiceAccountRequest{
-			ServiceAccountId: latest.ResourceID(),
+	getServiceAccount := func(id string) (*tcloudidentityv1.ServiceAccount, error) {
+		resp, err := tcc.GetServiceAccount(ctx, &tcloudservicev1.GetServiceAccountRequest{
+			ServiceAccountId: id,
 		})
 		if status.Code(err) == codes.NotFound {
-			// The service account was deleted by another entity or user (not the operator).
-			// We treat it the same as if it was never created and make sure ResourceSync
-			// recreates it in this pass.
-			err = nil
-		} else if err != nil {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		return resp.GetServiceAccount(), nil
+	}
+
+	var tsa *tcloudidentityv1.ServiceAccount
+	switch {
+	case latest.PreviouslyReconciled():
+		// The service account may have been deleted by another entity or user
+		// (not the operator). We treat it the same as if it was never created
+		// and make sure ResourceSync recreates it in this pass.
+		tsa, err = getServiceAccount(latest.ResourceID())
+		if err != nil {
 			return latest, fmt.Errorf("failed getting tcloud service account: %w", err)
 		}
-		tsa = resp.GetServiceAccount()
+	case latest.AdoptionPolicy() == cloudcommon.AdoptionPolicyAdopt:
+		resourceID := latest.ResourceID()
+		tsa, err = getServiceAccount(resourceID)
+		if err != nil {
+			return latest, fmt.Errorf("failed getting tcloud service account %q to adopt: %w", resourceID, err)
+		}
+		// There's nothing to adopt. Without an error the controller would see
+		// no difference from the annotations-only CR and report success.
+		if tsa == nil {
+			err = fmt.Errorf("no tcloud service account with ID %q to adopt", resourceID)
+			return latest, err
+		}
 	}
 
 	if tsa == nil {

@@ -3,6 +3,7 @@ package serviceaccount
 import (
 	"context"
 	"fmt"
+	"time"
 
 	ctrlerrors "github.com/temporalio/kube-temporal/pkg/controller/errors"
 	ctrlreqlog "github.com/temporalio/kube-temporal/pkg/controller/request/log"
@@ -13,6 +14,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
+	"github.com/temporalio/cloud-operator/pkg/reconciler/adoption"
 	"github.com/temporalio/cloud-operator/pkg/resource/reference"
 	"github.com/temporalio/cloud-operator/pkg/temporal/cloud"
 	"github.com/temporalio/cloud-operator/pkg/types"
@@ -36,6 +38,13 @@ func (r *Reconciler) ResourceSync(
 		exit(err)
 	}()
 
+	desiredRes := desired.(types.Resource)
+	if adoption.Wanted(desiredRes) {
+		var adopted kttypes.Resource
+		adopted, err = adoption.Adopt(desiredRes, latest.(types.Resource), resourceKind, time.Now(), nil)
+		return adopted, err
+	}
+
 	updated := latest.DeepCopy()
 
 	tcc, err := r.CloudClientFor(ctx, desired)
@@ -45,6 +54,9 @@ func (r *Reconciler) ResourceSync(
 
 	desiredSA := desired.CR().(*tcloudv1alpha1.ServiceAccount)
 	if !latest.(types.Resource).PreviouslyReconciled() {
+		if err = adoption.CheckNotRecreated(desiredRes, resourceKind); err != nil {
+			return adoption.Unchanged(desiredRes), err
+		}
 		err = createServiceAccount(
 			ctx, tcc, desiredSA, updated.CR().(*tcloudv1alpha1.ServiceAccount),
 		)

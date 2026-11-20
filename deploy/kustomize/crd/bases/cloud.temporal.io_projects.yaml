@@ -50,10 +50,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: |-
-              Spec defines the desired state of the Project.
-              A CR that adopts an existing Project can leave it out, and adopting
-              fills it in from Temporal Cloud.
+            description: Spec defines the desired state of the Project.
             properties:
               description:
                 description: |-
