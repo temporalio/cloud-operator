@@ -24,8 +24,8 @@ type ServiceAccount struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// Spec defines the desired state of the Service Account.
-	// +required
-	Spec ServiceAccountSpec `json:"spec"`
+	// +optional
+	Spec ServiceAccountSpec `json:"spec,omitzero"`
 	// +optional
 	// Status describes the current status of a Service Account.
 	Status ServiceAccountStatus `json:"status,omitempty"`

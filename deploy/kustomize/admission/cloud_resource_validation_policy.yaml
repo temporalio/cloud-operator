@@ -9,7 +9,7 @@ spec:
     - apiGroups: ["cloud.temporal.io"]
       apiVersions: ["*"]
       operations: ["CREATE", "UPDATE"]
-      resources: ["namespaces"]
+      resources: ["namespaces", "projects", "serviceaccounts"]
   variables:
   - name: adoptionPolicy
     expression: "object.?metadata.annotations['cloud.temporal.io/adoption-policy']"

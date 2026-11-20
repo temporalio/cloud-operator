@@ -66,6 +66,41 @@ func TestReconciler_ResourceLatest(t *testing.T) {
 			},
 		},
 		{
+			name: "an adopt CR's service account is read from temporal cloud by its resource-id annotation",
+			cr:   newAdoptServiceAccount(),
+			serverOpts: []fakeserver.NewOption{
+				fakeserver.OnGetServiceAccount(
+					func(req *tcloudservicev1.GetServiceAccountRequest) {
+						assert.Equal(t, saID, req.GetServiceAccountId())
+					},
+					func() (*tcloudservicev1.GetServiceAccountResponse, error) {
+						return &tcloudservicev1.GetServiceAccountResponse{ServiceAccount: fromCloud}, nil
+					},
+				),
+			},
+			assert: func(t *testing.T, got *tcloudv1alpha1.ServiceAccount) {
+				require.Equal(t, id(nsID), got.Spec.NamespaceScopedAccess.Namespace)
+				require.Equal(t, saID, got.Status.Resource.ID)
+				require.Equal(t, cloudcommon.ResourceStateActive, got.Status.Resource.State)
+			},
+		},
+		{
+			name: "an adopt CR's service account doesn't exist, so an error is returned",
+			cr:   newAdoptServiceAccount(),
+			serverOpts: []fakeserver.NewOption{
+				fakeserver.OnGetServiceAccountReturn(nil, status.Error(codes.NotFound, "gone")),
+			},
+			expErr: `no tcloud service account with ID "sa-1" to adopt`,
+		},
+		{
+			name: "an adopt CR's service account can't be read, so an error is returned",
+			cr:   newAdoptServiceAccount(),
+			serverOpts: []fakeserver.NewOption{
+				fakeserver.OnGetServiceAccountReturn(nil, status.Error(codes.PermissionDenied, "api key can't read service accounts")),
+			},
+			expErr: `failed getting tcloud service account "sa-1" to adopt`,
+		},
+		{
 			name:     "a namespace without an id yet isn't listed",
 			cr:       newServiceAccount(ref(nsName)),
 			kubeObjs: []runtime.Object{referencedNamespace("")},

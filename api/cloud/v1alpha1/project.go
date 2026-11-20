@@ -24,8 +24,8 @@ type Project struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// Spec defines the desired state of the Project.
-	// +required
-	Spec ProjectSpec `json:"spec"`
+	// +optional
+	Spec ProjectSpec `json:"spec,omitzero"`
 	// +optional
 	// Status describes the current status of a Project.
 	Status ProjectStatus `json:"status,omitempty"`

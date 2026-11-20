@@ -10,6 +10,7 @@ import (
 	tcloudprojectv1 "go.temporal.io/cloud-sdk/api/project/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	cloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 	"github.com/temporalio/cloud-operator/controller/project"
 	"github.com/temporalio/cloud-operator/pkg/reconciler/base"
@@ -80,6 +81,21 @@ func newProject() *tcloudv1alpha1.Project {
 		Spec: tcloudv1alpha1.ProjectSpec{
 			DisplayName: "Payments",
 			Description: "payments team",
+		},
+	}
+}
+
+// newAdoptProject returns a Project CR that adopts the Temporal Cloud project
+// projectID, with spec left out as a user would write it.
+func newAdoptProject() *tcloudv1alpha1.Project {
+	return &tcloudv1alpha1.Project{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: kubeNamespace,
+			Name:      projectName,
+			Annotations: map[string]string{
+				cloudcommon.AnnotationKeyAdoptionPolicy: string(cloudcommon.AdoptionPolicyAdopt),
+				cloudcommon.AnnotationKeyResourceID:     projectID,
+			},
 		},
 	}
 }

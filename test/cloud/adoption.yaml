@@ -1,0 +1,236 @@
+name: adoption
+description: |
+  A Project, a Namespace in it and a ServiceAccount scoped to the Project are
+  created with the Temporal Cloud CLI and adopted with one `kubectl apply`.
+  Deleting the CRs leaves the resources in Temporal Cloud, and the CLI deletes them at
+  the end. Run with `make test-cloud`.
+
+depends:
+  - name: temporal-cloud
+
+defaults:
+  kube:
+    context: $TEST_KUBE_CONTEXT
+    namespace: tco-test-cloud-adoption
+
+tests:
+ - name: operator-api-key
+   kube:
+     namespace: temporal-cloud-operator
+     apply: manifests/operator/api-key.yaml
+
+ - name: operator-ready
+   kube:
+     namespace: temporal-cloud-operator
+     get: deployments/temporal-cloud-operator
+   timeout: 3m
+   retry:
+     interval: 5s
+   require:
+     conditions:
+       available: true
+
+ - name: create-test-namespace
+   kube.get: projects.cloud.temporal.io
+   require:
+     len: 0
+
+ - name: project-created-in-cloud
+   exec: >-
+     temporal-cloud project apply --auto-confirm --output json
+     --spec "$(sed 's/$${RUN_ID}/${RUN_ID}/g' manifests/adoption/cloud/project.json)" |
+     jq -er .projectId
+   shell: sh
+   timeout: 5m
+   var:
+     PROJECT_ID:
+       from: stdout
+
+ - name: namespace-created-in-cloud
+   exec: >-
+     temporal-cloud namespace apply --auto-confirm --async --output json --project-id $$PROJECT_ID
+     --spec "$(sed 's/$${RUN_ID}/${RUN_ID}/g' manifests/adoption/cloud/namespace.json)" |
+     jq -er .id
+   shell: sh
+   var:
+     NAMESPACE_ID:
+       from: stdout
+
+ - name: namespace-active-in-cloud
+   exec: temporal-cloud namespace get --namespace $$NAMESPACE_ID --output json
+   timeout: 10m
+   retry:
+     interval: 15s
+   require:
+     out:
+       contains: RESOURCE_STATE_ACTIVE
+
+ - name: service-account-created-in-cloud
+   exec: >-
+     temporal-cloud service-account create-project-scoped --auto-confirm --output json
+     --name tro-e2e-${RUN_ID}-adopt-sa
+     --project-id $$PROJECT_ID --project-role read
+     --namespace-access $$NAMESPACE_ID=write |
+     jq -er .serviceAccountId
+   shell: sh
+   timeout: 5m
+   var:
+     SERVICE_ACCOUNT_ID:
+       from: stdout
+
+ - name: adopt-all
+   exec: >-
+     sed -e 's/$${RUN_ID}/${RUN_ID}/g'
+     -e 's/$${PROJECT_ID}/$$PROJECT_ID/g'
+     -e 's/$${NAMESPACE_ID}/$$NAMESPACE_ID/g'
+     -e 's/$${SERVICE_ACCOUNT_ID}/$$SERVICE_ACCOUNT_ID/g'
+     manifests/adoption/*.yaml |
+     kubectl --context $TEST_KUBE_CONTEXT -n tco-test-cloud-adoption apply -f -
+   shell: sh
+   require:
+     out:
+       contains:
+         - project.cloud.temporal.io/tro-e2e-${RUN_ID}-adopt-p created
+         - namespace.cloud.temporal.io/tro-e2e-${RUN_ID}-adopt-ns created
+         - serviceaccount.cloud.temporal.io/tro-e2e-${RUN_ID}-adopt-sa created
+
+ - name: project-adopted
+   kube.get: projects.cloud.temporal.io/tro-e2e-${RUN_ID}-adopt-p
+   timeout: 2m
+   retry:
+     interval: 10s
+   require:
+     matches:
+       spec:
+         displayName: tro-e2e-${RUN_ID}-adopt-p
+       status:
+         resource:
+           id: $$PROJECT_ID
+           state: Active
+
+ - name: namespace-adopted
+   kube.get: namespaces.cloud.temporal.io/tro-e2e-${RUN_ID}-adopt-ns
+   timeout: 2m
+   retry:
+     interval: 10s
+   require:
+     matches:
+       spec:
+         retentionDays: 1
+       status:
+         resource:
+           id: $$NAMESPACE_ID
+           state: Active
+
+ - name: service-account-adopted
+   kube.get: serviceaccounts.cloud.temporal.io/tro-e2e-${RUN_ID}-adopt-sa
+   timeout: 2m
+   retry:
+     interval: 10s
+   require:
+     matches:
+       spec:
+         displayName: tro-e2e-${RUN_ID}-adopt-sa
+         projectScopedAccess:
+           project:
+             id: $$PROJECT_ID
+       status:
+         resource:
+           id: $$SERVICE_ACCOUNT_ID
+           state: Active
+
+ - name: adopted-on-set
+   exec: >-
+     kubectl --context $TEST_KUBE_CONTEXT -n tco-test-cloud-adoption get
+     projects.cloud.temporal.io,namespaces.cloud.temporal.io,serviceaccounts.cloud.temporal.io
+     -o json |
+     jq -e '.items | length == 3 and all(.metadata.annotations["cloud.temporal.io/adopted-on"])'
+   shell: sh
+
+ - name: none-stalled
+   exec: >-
+     kubectl --context $TEST_KUBE_CONTEXT -n tco-test-cloud-adoption get
+     projects.cloud.temporal.io,namespaces.cloud.temporal.io,serviceaccounts.cloud.temporal.io
+     -o jsonpath='{range .items[*]}{.metadata.name}={.status.conditions[?(@.type=="Stalled")].status} {end}'
+   require:
+     out:
+       contains:
+         - tro-e2e-${RUN_ID}-adopt-p=False
+         - tro-e2e-${RUN_ID}-adopt-ns=False
+         - tro-e2e-${RUN_ID}-adopt-sa=False
+
+ - name: delete-all
+   exec: >-
+     sed 's/$${RUN_ID}/${RUN_ID}/g' manifests/adoption/*.yaml |
+     kubectl --context $TEST_KUBE_CONTEXT -n tco-test-cloud-adoption delete --wait=false -f -
+   shell: sh
+
+ - name: service-account-deleted
+   kube.get: serviceaccounts.cloud.temporal.io
+   timeout: 2m
+   retry:
+     interval: 10s
+   require:
+     len: 0
+
+ - name: namespace-deleted
+   kube.get: namespaces.cloud.temporal.io
+   timeout: 2m
+   retry:
+     interval: 10s
+   require:
+     len: 0
+
+ - name: project-deleted
+   kube.get: projects.cloud.temporal.io
+   timeout: 2m
+   retry:
+     interval: 10s
+   require:
+     len: 0
+
+ - name: project-kept-in-cloud
+   exec: temporal-cloud project get --project-id $$PROJECT_ID --output json
+   require:
+     out:
+       contains: RESOURCE_STATE_ACTIVE
+
+ - name: namespace-kept-in-cloud
+   exec: temporal-cloud namespace get --namespace $$NAMESPACE_ID --output json
+   require:
+     out:
+       contains: RESOURCE_STATE_ACTIVE
+
+ - name: service-account-kept-in-cloud
+   exec: temporal-cloud service-account get --service-account-id $$SERVICE_ACCOUNT_ID --output json
+   require:
+     out:
+       contains: RESOURCE_STATE_ACTIVE
+
+ - name: service-account-cleanup-in-cloud
+   exec: temporal-cloud service-account delete --service-account-id $$SERVICE_ACCOUNT_ID --auto-confirm
+   timeout: 5m
+   retry:
+     interval: 15s
+
+ - name: namespace-cleanup-in-cloud
+   exec: temporal-cloud namespace delete --namespace $$NAMESPACE_ID --idempotent --auto-confirm
+   timeout: 5m
+   retry:
+     interval: 15s
+
+ - name: namespace-gone-from-cloud
+   exec: temporal-cloud namespace get --namespace $$NAMESPACE_ID
+   timeout: 15m
+   retry:
+     interval: 15s
+   require:
+     exit-code: 1
+     err:
+       contains: NotFound
+
+ - name: project-cleanup-in-cloud
+   exec: temporal-cloud project delete --project-id $$PROJECT_ID --auto-confirm
+   timeout: 5m
+   retry:
+     interval: 15s

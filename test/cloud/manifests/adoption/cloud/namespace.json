@@ -1,0 +1,6 @@
+{
+  "name": "tro-e2e-${RUN_ID}-adopt-ns",
+  "regions": ["aws-us-west-2"],
+  "retentionDays": 1,
+  "apiKeyAuth": {"enabled": true}
+}

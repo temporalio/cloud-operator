@@ -16,6 +16,7 @@ import (
 	cloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 	"github.com/temporalio/cloud-operator/pkg/ptr"
+	"github.com/temporalio/cloud-operator/pkg/reconciler/adoption"
 	"github.com/temporalio/cloud-operator/pkg/temporal/cloud"
 	"github.com/temporalio/cloud-operator/pkg/types"
 )
@@ -50,18 +51,9 @@ func (r *Reconciler) ResourceSync(
 		exit(err)
 	}()
 
-	if wantsAdoption(desired) {
-		// The Namespace may have disappeared after an earlier reconcile saved its ID.
-		// Retry without creating a new one.
-		if latest.ResourceStatus().ID == "" {
-			err = requeue.NeededAfter(
-				fmt.Errorf("no tcloud namespace with ID %q to adopt", desired.ResourceID()),
-				requeue.DefaultRequeueAfterDuration,
-			)
-			return unchangedResource(desired), err
-		}
+	if adoption.Wanted(desired) {
 		var adopted kttypes.Resource
-		adopted, err = adoptNamespace(desired, latest, time.Now())
+		adopted, err = adoption.Adopt(desired, latest, resourceKind, time.Now(), checkAdoptName)
 		return adopted, err
 	}
 
@@ -77,16 +69,8 @@ func (r *Reconciler) ResourceSync(
 	resourceID := latest.ResourceID()
 
 	if latest.ResourceStatus().ID == "" {
-
-		// The operator doesn't recreate a Namespace it adopted
-		if desired.IsAdopted() {
-			err = ctrlerrors.NewTerminalError(fmt.Errorf(
-				"%w: adopted tcloud namespace %q no longer exists in Temporal Cloud; "+
-					"the operator doesn't recreate adopted namespaces, "+
-					"delete this CR to stop managing it",
-				ctrlerrors.ErrResourceSync, desired.ResourceID(),
-			))
-			return unchangedResource(desired), err
+		if err = adoption.CheckNotRecreated(desired, resourceKind); err != nil {
+			return adoption.Unchanged(desired), err
 		}
 
 		cr := desired.CR()
