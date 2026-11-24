@@ -9,6 +9,7 @@ import (
 	tcloudv1alpha1 "github.com/temporalio/cloud-operator/api/cloud/v1alpha1"
 	tcloudidentityv1 "go.temporal.io/cloud-sdk/api/identity/v1"
 	tcloudresourcev1 "go.temporal.io/cloud-sdk/api/resource/v1"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -141,6 +142,88 @@ func TestUserGroup_FromProto(t *testing.T) {
 			require.Equal(tc.expStatus, got.Status.Resource)
 			require.Equal(g.ObjectMeta, got.ObjectMeta)
 			require.Equal(g.Status.References, got.Status.References, "references are kept")
+		})
+	}
+}
+
+func TestUserGroupSpec_ToProto(t *testing.T) {
+	refs := tcloudv1alpha1.UserGroupReferences{
+		Namespaces: []tcloudv1alpha1.NamespaceResolvedReference{
+			{Namespace: "apps", Name: "payments", ID: "payments.acct"},
+		},
+	}
+
+	t.Run("a namespace ref becomes its resolved id", func(t *testing.T) {
+		spec := tcloudv1alpha1.UserGroupSpec{
+			DisplayName: "oncall",
+			CloudGroup:  &tcloudv1alpha1.CloudGroupSpec{},
+			Access: tcloudv1alpha1.AccountScopedAccess{
+				AccountAccess: &tcloudv1alpha1.AccountAccess{Role: tcloudv1alpha1.AccountRoleRead},
+				NamespaceAccesses: []tcloudv1alpha1.NamespaceScopedAccess{
+					nsAccess(ref("payments"), tcloudv1alpha1.NamespacePermissionWrite),
+				},
+			},
+		}
+
+		got := spec.ToProto("apps", refs)
+
+		want := &tcloudidentityv1.UserGroupSpec{
+			DisplayName: "oncall",
+			GroupType:   &tcloudidentityv1.UserGroupSpec_CloudGroup{CloudGroup: &tcloudidentityv1.CloudGroupSpec{}},
+			Access: &tcloudidentityv1.Access{
+				AccountAccess: &tcloudidentityv1.AccountAccess{Role: tcloudidentityv1.AccountAccess_ROLE_READ},
+				NamespaceAccesses: map[string]*tcloudidentityv1.NamespaceAccess{
+					"payments.acct": {Permission: tcloudidentityv1.NamespaceAccess_PERMISSION_WRITE},
+				},
+			},
+		}
+		require.True(t, proto.Equal(want, got), "got %v", got)
+	})
+
+	t.Run("a google group sends its email address", func(t *testing.T) {
+		spec := tcloudv1alpha1.UserGroupSpec{
+			DisplayName: "Payments On Call",
+			GoogleGroup: &tcloudv1alpha1.GoogleGroupSpec{EmailAddress: "oncall@example.com"},
+		}
+
+		got := spec.ToProto("apps", refs)
+
+		require.Equal(t, "oncall@example.com", got.GetGoogleGroup().GetEmailAddress())
+		require.Nil(t, got.GetCloudGroup())
+	})
+}
+
+func TestUserGroupSpec_RoundTrip(t *testing.T) {
+	access := &tcloudidentityv1.Access{
+		AccountAccess: &tcloudidentityv1.AccountAccess{Role: tcloudidentityv1.AccountAccess_ROLE_DEVELOPER},
+		NamespaceAccesses: map[string]*tcloudidentityv1.NamespaceAccess{
+			"payments.acct": {Permission: tcloudidentityv1.NamespaceAccess_PERMISSION_WRITE},
+		},
+	}
+	tests := []struct {
+		name string
+		in   *tcloudidentityv1.UserGroupSpec
+	}{
+		{"cloud group", &tcloudidentityv1.UserGroupSpec{
+			DisplayName: "oncall",
+			GroupType:   &tcloudidentityv1.UserGroupSpec_CloudGroup{CloudGroup: &tcloudidentityv1.CloudGroupSpec{}},
+			Access:      access,
+		}},
+		{"google group", &tcloudidentityv1.UserGroupSpec{
+			DisplayName: "Payments On Call",
+			GroupType: &tcloudidentityv1.UserGroupSpec_GoogleGroup{
+				GoogleGroup: &tcloudidentityv1.GoogleGroupSpec{EmailAddress: "oncall@example.com"},
+			},
+			Access: access,
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var spec tcloudv1alpha1.UserGroupSpec
+
+			got := spec.FromProto(tc.in).ToProto("apps", tcloudv1alpha1.UserGroupReferences{})
+
+			require.True(t, proto.Equal(tc.in, got), "got %v", got)
 		})
 	}
 }
