@@ -20,7 +20,7 @@ func userGroupCR() tcloudv1alpha1.UserGroup {
 	g.Name = "oncall"
 	g.Namespace = "apps"
 	g.Status.References = tcloudv1alpha1.UserGroupReferences{
-		Namespaces: []tcloudv1alpha1.NamespaceResolvedReference{
+		Namespaces: []cloudcommon.ResolvedReference{
 			{Namespace: "apps", Name: "payments", ID: "payments.acct"},
 		},
 	}
