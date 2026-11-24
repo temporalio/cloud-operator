@@ -9,6 +9,7 @@ resources:
 - bases/cloud.temporal.io_projects.yaml
 - bases/cloud.temporal.io_apikeys.yaml
 - bases/cloud.temporal.io_users.yaml
+- bases/cloud.temporal.io_usergroups.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:
