@@ -62,6 +62,41 @@ func TestReconciler_ResourceLatest(t *testing.T) {
 			},
 		},
 		{
+			name: "an adopt CR's project is read from temporal cloud by its resource-id annotation",
+			cr:   newAdoptProject(),
+			serverOpts: []fakeserver.NewOption{
+				fakeserver.OnGetProject(
+					func(req *tcloudservicev1.GetProjectRequest) {
+						assert.Equal(t, projectID, req.GetProjectId())
+					},
+					func() (*tcloudservicev1.GetProjectResponse, error) {
+						return &tcloudservicev1.GetProjectResponse{Project: fromCloud}, nil
+					},
+				),
+			},
+			assert: func(t *testing.T, got *tcloudv1alpha1.Project) {
+				require.Equal(t, "Payments (renamed in cloud)", got.Spec.DisplayName)
+				require.Equal(t, projectID, got.Status.Resource.ID)
+				require.Equal(t, cloudcommon.ResourceStateActive, got.Status.Resource.State)
+			},
+		},
+		{
+			name: "an adopt CR's project doesn't exist, so an error is returned",
+			cr:   newAdoptProject(),
+			serverOpts: []fakeserver.NewOption{
+				fakeserver.OnGetProjectReturn(nil, status.Error(codes.NotFound, "gone")),
+			},
+			expErr: `no tcloud project with ID "project-1" to adopt`,
+		},
+		{
+			name: "an adopt CR's project can't be read, so an error is returned",
+			cr:   newAdoptProject(),
+			serverOpts: []fakeserver.NewOption{
+				fakeserver.OnGetProjectReturn(nil, status.Error(codes.PermissionDenied, "api key can't read projects")),
+			},
+			expErr: "failed getting tcloud project",
+		},
+		{
 			name: "already created, so it's read from temporal cloud by its id",
 			cr:   synced,
 			serverOpts: []fakeserver.NewOption{

@@ -1,0 +1,4 @@
+{
+  "displayName": "tro-e2e-${RUN_ID}-adopt-p",
+  "description": "Cloud Operator test for adopting existing resources."
+}

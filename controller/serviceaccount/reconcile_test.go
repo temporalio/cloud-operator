@@ -106,6 +106,19 @@ func newServiceAccount(namespace cloudcommon.ResourceReferenceOrID) *tcloudv1alp
 	return sa
 }
 
+// newAdoptServiceAccount returns a ServiceAccount CR that adopts the Temporal
+// Cloud service account.
+func newAdoptServiceAccount() *tcloudv1alpha1.ServiceAccount {
+	sa := &tcloudv1alpha1.ServiceAccount{}
+	sa.Namespace = kubeNamespace
+	sa.Name = saName
+	sa.Annotations = map[string]string{
+		cloudcommon.AnnotationKeyAdoptionPolicy: string(cloudcommon.AdoptionPolicyAdopt),
+		cloudcommon.AnnotationKeyResourceID:     saID,
+	}
+	return sa
+}
+
 func ref(name string) cloudcommon.ResourceReferenceOrID {
 	return cloudcommon.ResourceReferenceOrID{Ref: &cloudcommon.ResourceReference{Name: name}}
 }
