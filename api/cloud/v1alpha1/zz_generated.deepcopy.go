@@ -1296,7 +1296,7 @@ func (in *UserGroupReferences) DeepCopyInto(out *UserGroupReferences) {
 	*out = *in
 	if in.Namespaces != nil {
 		in, out := &in.Namespaces, &out.Namespaces
-		*out = make([]NamespaceResolvedReference, len(*in))
+		*out = make([]common.ResolvedReference, len(*in))
 		copy(*out, *in)
 	}
 	return
