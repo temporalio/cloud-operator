@@ -109,7 +109,7 @@ func TestServiceAccountSpec_ToProto(t *testing.T) {
 				},
 			},
 			refs: tcloudv1alpha1.ServiceAccountReferences{
-				Namespaces: []tcloudv1alpha1.NamespaceResolvedReference{
+				Namespaces: []cloudcommon.ResolvedReference{
 					{Namespace: "apps", Name: "payments", ID: "payments.acct"},
 					{Namespace: "shared", Name: "billing", ID: "billing.acct"},
 				},
@@ -148,7 +148,7 @@ func TestServiceAccountSpec_ToProto(t *testing.T) {
 				},
 			},
 			refs: tcloudv1alpha1.ServiceAccountReferences{
-				Namespaces: []tcloudv1alpha1.NamespaceResolvedReference{
+				Namespaces: []cloudcommon.ResolvedReference{
 					{Namespace: "apps", Name: "payments", ID: "payments.acct"},
 				},
 			},
@@ -179,6 +179,63 @@ func TestServiceAccountSpec_ToProto(t *testing.T) {
 					Access:    &tcloudidentityv1.ProjectAccess{Role: tcloudidentityv1.ProjectAccess_PROJECT_ROLE_WRITE},
 					NamespaceAccesses: map[string]*tcloudidentityv1.NamespaceAccess{
 						"ns1.acct": {Permission: tcloudidentityv1.NamespaceAccess_PERMISSION_ADMIN},
+					},
+				},
+			},
+		},
+		{
+			name: "account scoped project refs use the id for their namespace/name",
+			spec: tcloudv1alpha1.ServiceAccountSpec{
+				DisplayName: "ci",
+				AccountScopedAccess: &tcloudv1alpha1.AccountScopedAccess{
+					ProjectAccesses: []tcloudv1alpha1.ProjectAccessEntry{
+						projectAccess(id("p-legacy"), tcloudv1alpha1.ProjectRoleRead),
+						projectAccess(ref("orders"), tcloudv1alpha1.ProjectRoleAdmin),
+					},
+				},
+			},
+			refs: tcloudv1alpha1.ServiceAccountReferences{
+				Projects: []cloudcommon.ResolvedReference{
+					{Namespace: "apps", Name: "orders", ID: "p-orders"},
+				},
+			},
+			exp: &tcloudidentityv1.ServiceAccountSpec{
+				Name: "ci",
+				Access: &tcloudidentityv1.Access{
+					ProjectAccesses: map[string]*tcloudidentityv1.ProjectAccess{
+						"p-legacy": {Role: tcloudidentityv1.ProjectAccess_PROJECT_ROLE_READ},
+						"p-orders": {Role: tcloudidentityv1.ProjectAccess_PROJECT_ROLE_ADMIN},
+					},
+				},
+			},
+		},
+		{
+			name: "project scoped with project and namespace refs uses their ids",
+			spec: tcloudv1alpha1.ServiceAccountSpec{
+				DisplayName: "deployer",
+				ProjectScopedAccess: &tcloudv1alpha1.ProjectScopedAccess{
+					Project: ref("orders"),
+					Access:  tcloudv1alpha1.ProjectAccess{Role: tcloudv1alpha1.ProjectRoleRead},
+					NamespaceAccesses: []tcloudv1alpha1.NamespaceScopedAccess{
+						nsAccess(ref("orders-prod"), tcloudv1alpha1.NamespacePermissionWrite),
+					},
+				},
+			},
+			refs: tcloudv1alpha1.ServiceAccountReferences{
+				Namespaces: []cloudcommon.ResolvedReference{
+					{Namespace: "apps", Name: "orders-prod", ID: "orders-prod.acct"},
+				},
+				Projects: []cloudcommon.ResolvedReference{
+					{Namespace: "apps", Name: "orders", ID: "p-orders"},
+				},
+			},
+			exp: &tcloudidentityv1.ServiceAccountSpec{
+				Name: "deployer",
+				ProjectScopedAccess: &tcloudidentityv1.ProjectScopedAccess{
+					ProjectId: "p-orders",
+					Access:    &tcloudidentityv1.ProjectAccess{Role: tcloudidentityv1.ProjectAccess_PROJECT_ROLE_READ},
+					NamespaceAccesses: map[string]*tcloudidentityv1.NamespaceAccess{
+						"orders-prod.acct": {Permission: tcloudidentityv1.NamespaceAccess_PERMISSION_WRITE},
 					},
 				},
 			},
@@ -333,7 +390,7 @@ func TestServiceAccount_FromProto(t *testing.T) {
 	sa := tcloudv1alpha1.ServiceAccount{}
 	sa.Name = "ci"
 	sa.Namespace = "apps"
-	sa.Status.References.Namespaces = []tcloudv1alpha1.NamespaceResolvedReference{
+	sa.Status.References.Namespaces = []cloudcommon.ResolvedReference{
 		{Namespace: "apps", Name: "payments", ID: "payments.acct"},
 	}
 

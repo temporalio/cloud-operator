@@ -14,6 +14,7 @@ type fakeServer struct {
 	lis        net.Listener
 	tcloudservicev1.UnimplementedCloudServiceServer
 
+	createNamespaceFunc     CreateNamespaceFunc
 	getNamespaceFunc        GetNamespaceFunc
 	getNamespacesFunc       GetNamespacesFunc
 	updateNamespaceFunc     UpdateNamespaceFunc

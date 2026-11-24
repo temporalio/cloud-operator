@@ -202,6 +202,88 @@ func TestResolveServiceAccountID(t *testing.T) {
 	}
 }
 
+func TestResolveProjectID(t *testing.T) {
+	const referrerNamespace = "apps"
+
+	newProject := func(
+		kubeNamespace, name, id string,
+		state cloudcommon.ResourceState,
+	) *tcloudv1alpha1.Project {
+		p := &tcloudv1alpha1.Project{}
+		p.Namespace = kubeNamespace
+		p.Name = name
+		p.Status.Resource.ID = id
+		p.Status.Resource.State = state
+		return p
+	}
+	kc := kube.NewFakeClient(
+		newProject(referrerNamespace, "orders", "p-orders", cloudcommon.ResourceStateActive),
+		newProject("shared", "billing", "p-billing", cloudcommon.ResourceStateActive),
+		newProject(referrerNamespace, "pending", "", ""),
+		newProject(referrerNamespace, "activating", "p-activating", cloudcommon.ResourceStateActivating),
+	)
+
+	cases := []struct {
+		name        string
+		refOrID     cloudcommon.ResourceReferenceOrID
+		expID       string
+		expNotReady bool
+	}{
+		{
+			name: "fail if the ref points to a missing project",
+			refOrID: cloudcommon.ResourceReferenceOrID{
+				Ref: &cloudcommon.ResourceReference{Name: "nope"},
+			},
+			expNotReady: true,
+		},
+		{
+			name: "fail if the project has no id yet",
+			refOrID: cloudcommon.ResourceReferenceOrID{
+				Ref: &cloudcommon.ResourceReference{Name: "pending"},
+			},
+			expNotReady: true,
+		},
+		{
+			name: "fail if the project is still activating",
+			refOrID: cloudcommon.ResourceReferenceOrID{
+				Ref: &cloudcommon.ResourceReference{Name: "activating"},
+			},
+			expNotReady: true,
+		},
+		{
+			name:    "an id yields that id as is",
+			refOrID: cloudcommon.ResourceReferenceOrID{ID: "p-legacy"},
+			expID:   "p-legacy",
+		},
+		{
+			name: "a ref without a namespace yields the id of the project in the referrer's namespace",
+			refOrID: cloudcommon.ResourceReferenceOrID{
+				Ref: &cloudcommon.ResourceReference{Name: "orders"},
+			},
+			expID: "p-orders",
+		},
+		{
+			name: "a ref with a namespace yields the id of the project in that namespace",
+			refOrID: cloudcommon.ResourceReferenceOrID{
+				Ref: &cloudcommon.ResourceReference{Namespace: "shared", Name: "billing"},
+			},
+			expID: "p-billing",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(tt *testing.T) {
+			r := require.New(tt)
+			got, err := reference.ResolveProjectID(context.TODO(), kc, referrerNamespace, tc.refOrID)
+			if tc.expNotReady {
+				r.ErrorIs(err, reference.ErrNotReady)
+				return
+			}
+			r.NoError(err)
+			r.Equal(tc.expID, got)
+		})
+	}
+}
+
 func TestReferenceCheck(t *testing.T) {
 	ref := func(namespace, name string) cloudcommon.ResourceReferenceOrID {
 		return cloudcommon.ResourceReferenceOrID{

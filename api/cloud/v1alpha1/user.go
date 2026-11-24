@@ -105,10 +105,14 @@ func (s UserSpec) ToProto(
 		id, _ := refs.NamespaceID(*namespace.Ref, referrerNamespace)
 		return id
 	}
+	// TODO(tomba): resolve project refs for users.
+	projectID := func(project cloudcommon.ResourceReferenceOrID) string {
+		return project.ID
+	}
 
 	return &tcloudidentityv1.UserSpec{
 		Email:  s.Email,
-		Access: s.Access.toProto(namespaceID),
+		Access: s.Access.toProto(namespaceID, projectID),
 	}
 }
 
@@ -139,7 +143,7 @@ type UserReferences struct {
 	// +listType=map
 	// +listMapKey=namespace
 	// +listMapKey=name
-	Namespaces []NamespaceResolvedReference `json:"namespaces,omitempty"`
+	Namespaces []cloudcommon.ResolvedReference `json:"namespaces,omitempty"`
 }
 
 // NamespaceID returns the Temporal Cloud ID of the Namespace CR that the
@@ -148,16 +152,7 @@ func (r UserReferences) NamespaceID(
 	ref cloudcommon.ResourceReference,
 	referrerNamespace string,
 ) (string, bool) {
-	namespace := ref.Namespace
-	if namespace == "" {
-		namespace = referrerNamespace
-	}
-	for _, resolved := range r.Namespaces {
-		if resolved.Namespace == namespace && resolved.Name == ref.Name {
-			return resolved.ID, true
-		}
-	}
-	return "", false
+	return cloudcommon.ResolvedID(r.Namespaces, ref, referrerNamespace)
 }
 
 // UserInvitation describes the invitation Temporal Cloud sent to a User.

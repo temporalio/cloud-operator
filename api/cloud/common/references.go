@@ -24,3 +24,38 @@ type ResourceReference struct {
 	// +required
 	Name string `json:"name"`
 }
+
+// ResolvedReference contains the Kubernetes Namespace and Name of a
+// cloud.temporal.io custom resource along with its resolved Temporal Cloud
+// resource identifier.
+type ResolvedReference struct {
+	// Namespace is the Kubernetes Namespace containing the custom resource.
+	// +required
+	Namespace string `json:"namespace"`
+	// Name is the Kubernetes Name of the custom resource.
+	// +required
+	Name string `json:"name"`
+	// ID is the Temporal Cloud resource identifier.
+	// +required
+	ID string `json:"id"`
+}
+
+// ResolvedID returns the ID in `resolved` of the custom resource that ref
+// points to, and whether it is there. A ref without a namespace points into
+// referrerNamespace.
+func ResolvedID(
+	resolved []ResolvedReference,
+	ref ResourceReference,
+	referrerNamespace string,
+) (string, bool) {
+	namespace := ref.Namespace
+	if namespace == "" {
+		namespace = referrerNamespace
+	}
+	for _, r := range resolved {
+		if r.Namespace == namespace && r.Name == ref.Name {
+			return r.ID, true
+		}
+	}
+	return "", false
+}

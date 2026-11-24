@@ -56,13 +56,15 @@ func accountScopedAccessFromProto(in *tcloudidentityv1.Access) *AccountScopedAcc
 }
 
 // toProto returns the Temporal Cloud Access for the account scoped access,
-// with namespaceID giving the ID of each Namespace.
+// with namespaceID giving the ID of each Namespace and projectID the ID of
+// each Project.
 func (a AccountScopedAccess) toProto(
 	namespaceID func(cloudcommon.ResourceReferenceOrID) string,
+	projectID func(cloudcommon.ResourceReferenceOrID) string,
 ) *tcloudidentityv1.Access {
 	out := &tcloudidentityv1.Access{
 		NamespaceAccesses: namespaceAccessesToProto(a.NamespaceAccesses, namespaceID),
-		ProjectAccesses:   projectAccessesToProto(a.ProjectAccesses),
+		ProjectAccesses:   projectAccessesToProto(a.ProjectAccesses, projectID),
 	}
 	if a.AccountAccess != nil {
 		out.AccountAccess = a.AccountAccess.toProto()
@@ -309,16 +311,17 @@ func projectAccessesFromProto(
 }
 
 // projectAccessesToProto returns the Temporal Cloud project access map for the
-// supplied entries.
+// supplied entries, with projectID giving the ID of each Project.
 func projectAccessesToProto(
 	entries []ProjectAccessEntry,
+	projectID func(cloudcommon.ResourceReferenceOrID) string,
 ) map[string]*tcloudidentityv1.ProjectAccess {
 	if len(entries) == 0 {
 		return nil
 	}
 	out := make(map[string]*tcloudidentityv1.ProjectAccess, len(entries))
 	for _, e := range entries {
-		out[e.Project.ID] = &tcloudidentityv1.ProjectAccess{
+		out[projectID(e.Project)] = &tcloudidentityv1.ProjectAccess{
 			Role: e.Access.Role.ToProto(),
 		}
 	}
@@ -395,20 +398,4 @@ func (r ProjectRole) ToProto() tcloudidentityv1.ProjectAccess_ProjectRole {
 	default:
 		return tcloudidentityv1.ProjectAccess_PROJECT_ROLE_UNSPECIFIED
 	}
-}
-
-// NamespaceResolvedReference contains a Kubernetes Namespace and Name for a
-// Temporal Cloud Namespace CR along with its resolved Temporal Cloud resource
-// identifier.
-type NamespaceResolvedReference struct {
-	// Namespace is the Kubernetes Namespace containing the Temporal Cloud
-	// Namespace CR.
-	// +required
-	Namespace string `json:"namespace"`
-	// Name is the Kubernetes Name of the Temporal Cloud Namespace CR.
-	// +required
-	Name string `json:"name"`
-	// ID is the Temporal Cloud resource identifier.
-	// +required
-	ID string `json:"id"`
 }

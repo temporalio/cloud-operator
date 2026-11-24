@@ -176,24 +176,21 @@ func checkReferences(
 		id, _ := refs.NamespaceID(*nr.refOrID.Ref, cr.Namespace)
 		check.Pending(nr.path, nr.refOrID, id)
 	}
+	for _, pr := range projectRefs(cr.Spec) {
+		id, _ := refs.ProjectID(*pr.refOrID.Ref, cr.Namespace)
+		check.Pending(pr.path, pr.refOrID, id)
+	}
 
-	// TODO(tomba): support Project and custom role refs once their controllers exist.
-	spec := cr.Spec
-	switch {
-	case spec.AccountScopedAccess != nil:
-		a := spec.AccountScopedAccess
-		for i, e := range a.ProjectAccesses {
-			check.Unsupported(fmt.Sprintf("spec.accountScopedAccess.projectAccesses[%d].project", i), e.Project)
+	// TODO(tomba): support custom role refs once their controller exists.
+	if a := cr.Spec.AccountScopedAccess; a != nil && a.AccountAccess != nil {
+		for i, customRole := range a.AccountAccess.CustomRoles {
+			check.Unsupported(fmt.Sprintf("spec.accountScopedAccess.accountAccess.customRoles[%d]", i), customRole)
 		}
-		if a.AccountAccess != nil {
-			for i, customRole := range a.AccountAccess.CustomRoles {
-				check.Unsupported(fmt.Sprintf("spec.accountScopedAccess.accountAccess.customRoles[%d]", i), customRole)
-			}
-		}
-	case spec.ProjectScopedAccess != nil:
-		check.Unsupported("spec.projectScopedAccess.project", spec.ProjectScopedAccess.Project)
 	}
 	if err := checkDuplicateNamespaces(cr, refs); err != nil {
+		return err
+	}
+	if err := checkDuplicateProjects(cr, refs); err != nil {
 		return err
 	}
 	return check.Err()
@@ -216,20 +213,50 @@ func checkDuplicateNamespaces(
 		entries = cr.Spec.ProjectScopedAccess.NamespaceAccesses
 	}
 
-	seen := map[string]int{}
+	ids := make([]string, len(entries))
 	for i, e := range entries {
-		id := e.Namespace.ID
+		ids[i] = e.Namespace.ID
 		if e.Namespace.Ref != nil {
-			id, _ = refs.NamespaceID(*e.Namespace.Ref, cr.Namespace)
+			ids[i], _ = refs.NamespaceID(*e.Namespace.Ref, cr.Namespace)
 		}
+	}
+	return checkDuplicateIDs(path, "namespace", ids)
+}
+
+// checkDuplicateProjects returns a terminal error when two project accesses in
+// the spec refer to the same Temporal Cloud project.
+func checkDuplicateProjects(
+	cr *tcloudv1alpha1.ServiceAccount,
+	refs tcloudv1alpha1.ServiceAccountReferences,
+) error {
+	if cr.Spec.AccountScopedAccess == nil {
+		return nil
+	}
+	entries := cr.Spec.AccountScopedAccess.ProjectAccesses
+	ids := make([]string, len(entries))
+	for i, e := range entries {
+		ids[i] = e.Project.ID
+		if e.Project.Ref != nil {
+			ids[i], _ = refs.ProjectID(*e.Project.Ref, cr.Namespace)
+		}
+	}
+	return checkDuplicateIDs("spec.accountScopedAccess.projectAccesses", "project", ids)
+}
+
+// checkDuplicateIDs returns a terminal error when two entries of the list at
+// path have the same Temporal Cloud ID. field names the referring field of
+// each entry, such as namespace.
+func checkDuplicateIDs(path, field string, ids []string) error {
+	seen := map[string]int{}
+	for i, id := range ids {
 		if id == "" {
 			continue
 		}
 		if first, ok := seen[id]; ok {
 			return ctrlerrors.NewTerminalError(
 				fmt.Errorf(
-					"%w: %s[%d].namespace and %s[%d].namespace both refer to tcloud namespace %q",
-					ctrlerrors.ErrResourceSync, path, first, path, i, id,
+					"%w: %s[%d].%s and %s[%d].%s both refer to tcloud %s %q",
+					ctrlerrors.ErrResourceSync, path, first, field, path, i, field, field, id,
 				),
 			)
 		}

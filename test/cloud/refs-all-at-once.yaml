@@ -1,0 +1,278 @@
+name: refs-all-at-once
+description: |
+  A Project, a Namespace in that Project, a ServiceAccount scoped to the
+  Project with access to the Namespace, a ServiceAccount scoped to the
+  Namespace and an APIKey owned by the project scoped ServiceAccount refer to
+  each other by ref. They are created with one `kubectl apply` of the
+  manifests/refs directory, deleted with one `kubectl delete` as a user
+  would and each resource waits for the ones it refers to. Run with
+  `make test-cloud`.
+
+depends:
+  - name: temporal-cloud
+
+defaults:
+  kube:
+    context: $TEST_KUBE_CONTEXT
+    namespace: tco-test-cloud-refs
+
+tests:
+ - name: operator-api-key
+   kube:
+     namespace: temporal-cloud-operator
+     apply: manifests/operator/api-key.yaml
+
+ - name: operator-ready
+   kube:
+     namespace: temporal-cloud-operator
+     get: deployments/temporal-cloud-operator
+   timeout: 3m
+   retry:
+     interval: 5s
+   require:
+     conditions:
+       available: true
+
+ # gdt creates the tco-test-cloud-refs namespace on this first kube step,
+ # which is needed by the kubectl apply -f in the next step.
+ - name: create-test-namespace
+   kube.get: projects.cloud.temporal.io
+   require:
+     len: 0
+
+ - name: apply-all
+   exec: >-
+     cat manifests/refs/*.yaml | envsubst |
+     kubectl --context $TEST_KUBE_CONTEXT -n tco-test-cloud-refs apply -f -
+   shell: sh
+
+ - name: project-active-not-stalled
+   kube.get: projects.cloud.temporal.io/tro-e2e-${RUN_ID}-refs-p
+   timeout: 5m
+   retry:
+     interval: 10s
+   require:
+     matches:
+       status:
+         resource:
+           state: Active
+     conditions:
+       stalled:
+         status: false
+   var:
+     PROJECT_ID:
+       from: $.status.resource.id
+
+ - name: namespace-active-not-stalled
+   kube.get: namespaces.cloud.temporal.io/tro-e2e-${RUN_ID}-refs-ns
+   timeout: 10m
+   retry:
+     interval: 15s
+   require:
+     matches:
+       status:
+         resource:
+           state: Active
+     conditions:
+       stalled:
+         status: false
+   var:
+     NAMESPACE_ID:
+       from: $.status.resource.id
+
+ - name: project-service-account-active-not-stalled
+   kube.get: serviceaccounts.cloud.temporal.io/tro-e2e-${RUN_ID}-refs-proj-sa
+   timeout: 5m
+   retry:
+     interval: 10s
+   require:
+     matches:
+       status:
+         resource:
+           state: Active
+     conditions:
+       stalled:
+         status: false
+   var:
+     PROJECT_SERVICE_ACCOUNT_ID:
+       from: $.status.resource.id
+
+ - name: namespace-service-account-active-not-stalled
+   kube.get: serviceaccounts.cloud.temporal.io/tro-e2e-${RUN_ID}-refs-ns-sa
+   timeout: 5m
+   retry:
+     interval: 10s
+   require:
+     matches:
+       status:
+         resource:
+           state: Active
+     conditions:
+       stalled:
+         status: false
+   var:
+     NAMESPACE_SERVICE_ACCOUNT_ID:
+       from: $.status.resource.id
+
+ - name: api-key-active-not-stalled
+   kube.get: apikeys.cloud.temporal.io/tro-e2e-${RUN_ID}-refs-key
+   timeout: 5m
+   retry:
+     interval: 10s
+   require:
+     matches:
+       status:
+         resource:
+           state: Active
+     conditions:
+       stalled:
+         status: false
+   var:
+     API_KEY_ID:
+       from: $.status.resource.id
+
+ - name: project-active-in-cloud
+   exec: temporal-cloud project get --project-id $$PROJECT_ID --output json
+   timeout: 2m
+   retry:
+     interval: 10s
+   require:
+     out:
+       contains:
+         - RESOURCE_STATE_ACTIVE
+         - '"displayName": "tro-e2e-${RUN_ID}-refs-p"'
+
+ - name: namespace-in-project-in-cloud
+   exec: temporal-cloud namespace get --namespace $$NAMESPACE_ID --output json
+   timeout: 2m
+   retry:
+     interval: 10s
+   require:
+     out:
+       contains:
+         - RESOURCE_STATE_ACTIVE
+         - '"projectId": "$$PROJECT_ID"'
+
+ - name: project-service-account-scoped-in-cloud
+   exec: temporal-cloud service-account get --service-account-id $$PROJECT_SERVICE_ACCOUNT_ID --output json
+   timeout: 2m
+   retry:
+     interval: 10s
+   require:
+     out:
+       contains:
+         - RESOURCE_STATE_ACTIVE
+         - '"projectId": "$$PROJECT_ID"'
+         - '"$$NAMESPACE_ID"'
+         - PERMISSION_WRITE
+
+ - name: namespace-service-account-scoped-in-cloud
+   exec: temporal-cloud service-account get --service-account-id $$NAMESPACE_SERVICE_ACCOUNT_ID --output json
+   timeout: 2m
+   retry:
+     interval: 10s
+   require:
+     out:
+       contains:
+         - RESOURCE_STATE_ACTIVE
+         - '"namespace": "$$NAMESPACE_ID"'
+         - PERMISSION_READ
+
+ - name: api-key-owned-in-cloud
+   exec: temporal-cloud apikey get --key-id $$API_KEY_ID --output json
+   timeout: 2m
+   retry:
+     interval: 10s
+   require:
+     out:
+       contains:
+         - RESOURCE_STATE_ACTIVE
+         - '"ownerId": "$$PROJECT_SERVICE_ACCOUNT_ID"'
+
+ - name: delete-all
+   exec: >-
+     cat manifests/refs/*.yaml | envsubst |
+     kubectl --context $TEST_KUBE_CONTEXT -n tco-test-cloud-refs delete --wait=false -f -
+   shell: sh
+
+ - name: api-key-deleted
+   kube.get: apikeys.cloud.temporal.io
+   timeout: 5m
+   retry:
+     interval: 10s
+   require:
+     len: 0
+
+ - name: service-account-deleted
+   kube.get: serviceaccounts.cloud.temporal.io
+   timeout: 5m
+   retry:
+     interval: 10s
+   require:
+     len: 0
+
+ - name: namespace-deleted
+   kube.get: namespaces.cloud.temporal.io
+   timeout: 15m
+   retry:
+     interval: 15s
+   require:
+     len: 0
+
+ - name: project-deleted
+   kube.get: projects.cloud.temporal.io
+   timeout: 15m
+   retry:
+     interval: 15s
+   require:
+     len: 0
+
+ - name: api-key-deleted-in-cloud
+   exec: temporal-cloud apikey get --key-id $$API_KEY_ID
+   timeout: 2m
+   retry:
+     interval: 10s
+   require:
+     exit-code: 1
+     err:
+       contains: NotFound
+
+ - name: project-service-account-deleted-in-cloud
+   exec: temporal-cloud service-account get --service-account-id $$PROJECT_SERVICE_ACCOUNT_ID
+   timeout: 2m
+   retry:
+     interval: 10s
+   require:
+     exit-code: 1
+     err:
+       contains: NotFound
+
+ - name: namespace-service-account-deleted-in-cloud
+   exec: temporal-cloud service-account get --service-account-id $$NAMESPACE_SERVICE_ACCOUNT_ID
+   timeout: 2m
+   retry:
+     interval: 10s
+   require:
+     exit-code: 1
+     err:
+       contains: NotFound
+
+ - name: namespace-deleted-in-cloud
+   exec: temporal-cloud namespace get --namespace $$NAMESPACE_ID
+   timeout: 2m
+   retry:
+     interval: 10s
+   require:
+     exit-code: 1
+     err:
+       contains: NotFound
+
+ - name: project-deleted-in-cloud
+   exec: temporal-cloud project get --project-id $$PROJECT_ID
+   timeout: 2m
+   retry:
+     interval: 10s
+   require:
+     exit-code: 1
+     err:
+       contains: NotFound

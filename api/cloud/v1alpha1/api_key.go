@@ -195,7 +195,7 @@ type APIKeyReferences struct {
 	// ServiceAccount is the owning Service Account CR with its Temporal Cloud
 	// ID. It isn't set until that Service Account has an ID.
 	// +optional
-	ServiceAccount *ServiceAccountResolvedReference `json:"serviceAccount,omitempty"`
+	ServiceAccount *cloudcommon.ResolvedReference `json:"serviceAccount,omitempty"`
 }
 
 // ServiceAccountID returns the Temporal Cloud ID of the Service Account CR
@@ -204,30 +204,12 @@ func (r APIKeyReferences) ServiceAccountID(
 	ref cloudcommon.ResourceReference,
 	referrerNamespace string,
 ) (string, bool) {
-	namespace := ref.Namespace
-	if namespace == "" {
-		namespace = referrerNamespace
-	}
-	resolved := r.ServiceAccount
-	if resolved == nil || resolved.Namespace != namespace || resolved.Name != ref.Name {
+	if r.ServiceAccount == nil {
 		return "", false
 	}
-	return resolved.ID, true
-}
-
-// ServiceAccountResolvedReference contains a Kubernetes Namespace and Name for
-// a Temporal Cloud Service Account CR along with its resolved Temporal Cloud
-// resource identifier.
-type ServiceAccountResolvedReference struct {
-	// Namespace is the Kubernetes Namespace containing the Service Account CR.
-	// +required
-	Namespace string `json:"namespace"`
-	// Name is the Kubernetes Name of the Service Account CR.
-	// +required
-	Name string `json:"name"`
-	// ID is the Temporal Cloud resource identifier.
-	// +required
-	ID string `json:"id"`
+	return cloudcommon.ResolvedID(
+		[]cloudcommon.ResolvedReference{*r.ServiceAccount}, ref, referrerNamespace,
+	)
 }
 
 // APIKeyList is a list of APIKey resources
