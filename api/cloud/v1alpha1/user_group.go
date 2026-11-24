@@ -106,7 +106,7 @@ type UserGroupReferences struct {
 	// +listType=map
 	// +listMapKey=namespace
 	// +listMapKey=name
-	Namespaces []NamespaceResolvedReference `json:"namespaces,omitempty"`
+	Namespaces []cloudcommon.ResolvedReference `json:"namespaces,omitempty"`
 }
 
 // UserGroupList is a list of UserGroup resources.
