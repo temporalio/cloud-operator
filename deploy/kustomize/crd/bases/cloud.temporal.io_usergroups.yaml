@@ -261,8 +261,9 @@ spec:
               displayName:
                 description: |-
                   DisplayName is the name of the User Group in Temporal Cloud. It can be
-                  changed. Temporal Cloud requires the name of a cloudGroup
-                  (a user group where tcloud itself keeps the member list ) to be unique within the account.
+                  changed. Temporal Cloud requires the name of a cloudGroup (a user group
+                  where Temporal Cloud itself keeps the member list) to be unique within
+                  the account.
                   Maps to Temporal Cloud proto `UserGroupSpec.display_name`.
                 minLength: 1
                 type: string
@@ -299,10 +300,6 @@ spec:
             - message: the group type cannot be changed after creation
               rule: has(self.googleGroup) == has(oldSelf.googleGroup) && has(self.cloudGroup)
                 == has(oldSelf.cloudGroup)
-            - fieldPath: .displayName
-              message: the displayName of a cloudGroup must be 3 to 64 letters, digits,
-                hyphens or underscores
-              rule: '!has(self.cloudGroup) || self.displayName.matches(''^[a-zA-Z0-9_-]{3,64}$'')'
             - fieldPath: .access.accountAccess.role
               message: the Owner role cannot be assigned to a User Group
               rule: '!has(self.access) || !has(self.access.accountAccess) || !has(self.access.accountAccess.role)

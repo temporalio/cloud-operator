@@ -35,14 +35,14 @@ type UserGroup struct {
 // +k8s:openapi-gen=true
 // +kubebuilder:validation:XValidation:rule="has(self.googleGroup) != has(self.cloudGroup)",message="exactly one of googleGroup or cloudGroup must be set"
 // +kubebuilder:validation:XValidation:rule="has(self.googleGroup) == has(oldSelf.googleGroup) && has(self.cloudGroup) == has(oldSelf.cloudGroup)",message="the group type cannot be changed after creation"
-// +kubebuilder:validation:XValidation:rule="!has(self.cloudGroup) || self.displayName.matches('^[a-zA-Z0-9_-]{3,64}$')",message="the displayName of a cloudGroup must be 3 to 64 letters, digits, hyphens or underscores",fieldPath=".displayName"
 // +kubebuilder:validation:XValidation:rule="!has(self.access) || !has(self.access.accountAccess) || !has(self.access.accountAccess.role) || self.access.accountAccess.role != 'Owner'",message="the Owner role cannot be assigned to a User Group",fieldPath=".access.accountAccess.role"
 // +kubebuilder:validation:XValidation:rule="!has(self.access) || !has(self.access.accountAccess) || !has(self.access.accountAccess.role) || self.access.accountAccess.role != 'MetricsRead'",message="the MetricsRead role cannot be assigned to a User Group",fieldPath=".access.accountAccess.role"
 // +kubebuilder:validation:XValidation:rule="!has(self.access) || !has(self.access.accountAccess) || !has(self.access.accountAccess.role) || self.access.accountAccess.role != 'Admin' || ((!has(self.access.namespaceAccesses) || size(self.access.namespaceAccesses) == 0) && (!has(self.access.projectAccesses) || size(self.access.projectAccesses) == 0))",message="the Admin role cannot be combined with namespace or project access",fieldPath=".access"
 type UserGroupSpec struct {
 	// DisplayName is the name of the User Group in Temporal Cloud. It can be
-	// changed. Temporal Cloud requires the name of a cloudGroup
-	//(a user group where tcloud itself keeps the member list ) to be unique within the account.
+	// changed. Temporal Cloud requires the name of a cloudGroup (a user group
+	// where Temporal Cloud itself keeps the member list) to be unique within
+	// the account.
 	// Maps to Temporal Cloud proto `UserGroupSpec.display_name`.
 	// +required
 	// +kubebuilder:validation:MinLength=1

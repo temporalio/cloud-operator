@@ -28,107 +28,119 @@ func userGroupCR() tcloudv1alpha1.UserGroup {
 }
 
 func TestUserGroup_FromProto(t *testing.T) {
-	t.Run("spec and status come from the proto", func(t *testing.T) {
-		created := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
-		modified := time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)
-		g := userGroupCR()
+	created := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	modified := time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)
+	cloudGroup := &tcloudidentityv1.UserGroupSpec_CloudGroup{CloudGroup: &tcloudidentityv1.CloudGroupSpec{}}
 
-		got := g.FromProto(&tcloudidentityv1.UserGroup{
-			Id:               "group-1",
-			ResourceVersion:  "rv-1",
-			State:            tcloudresourcev1.ResourceState_RESOURCE_STATE_ACTIVE,
-			AsyncOperationId: "op-1",
-			CreatedTime:      timestamppb.New(created),
-			LastModifiedTime: timestamppb.New(modified),
-			Spec: &tcloudidentityv1.UserGroupSpec{
+	cases := []struct {
+		name      string
+		in        *tcloudidentityv1.UserGroup
+		expSpec   tcloudv1alpha1.UserGroupSpec
+		expStatus cloudcommon.ResourceStatus
+	}{
+		{
+			name: "cloud group with access yields its spec and status",
+			in: &tcloudidentityv1.UserGroup{
+				Id:               "group-1",
+				ResourceVersion:  "rv-1",
+				State:            tcloudresourcev1.ResourceState_RESOURCE_STATE_ACTIVE,
+				AsyncOperationId: "op-1",
+				CreatedTime:      timestamppb.New(created),
+				LastModifiedTime: timestamppb.New(modified),
+				Spec: &tcloudidentityv1.UserGroupSpec{
+					DisplayName: "oncall",
+					GroupType:   cloudGroup,
+					Access: &tcloudidentityv1.Access{
+						AccountAccess: &tcloudidentityv1.AccountAccess{
+							Role: tcloudidentityv1.AccountAccess_ROLE_DEVELOPER,
+						},
+						NamespaceAccesses: map[string]*tcloudidentityv1.NamespaceAccess{
+							"payments.acct": {Permission: tcloudidentityv1.NamespaceAccess_PERMISSION_WRITE},
+						},
+					},
+				},
+			},
+			expSpec: tcloudv1alpha1.UserGroupSpec{
 				DisplayName: "oncall",
-				GroupType:   &tcloudidentityv1.UserGroupSpec_CloudGroup{CloudGroup: &tcloudidentityv1.CloudGroupSpec{}},
-				Access: &tcloudidentityv1.Access{
-					AccountAccess: &tcloudidentityv1.AccountAccess{
-						Role: tcloudidentityv1.AccountAccess_ROLE_DEVELOPER,
-					},
-					NamespaceAccesses: map[string]*tcloudidentityv1.NamespaceAccess{
-						"payments.acct": {Permission: tcloudidentityv1.NamespaceAccess_PERMISSION_WRITE},
+				CloudGroup:  &tcloudv1alpha1.CloudGroupSpec{},
+				Access: tcloudv1alpha1.AccountScopedAccess{
+					AccountAccess: &tcloudv1alpha1.AccountAccess{Role: tcloudv1alpha1.AccountRoleDeveloper},
+					NamespaceAccesses: []tcloudv1alpha1.NamespaceScopedAccess{
+						nsAccess(id("payments.acct"), tcloudv1alpha1.NamespacePermissionWrite),
 					},
 				},
 			},
-		})
-
-		require.Equal(t, tcloudv1alpha1.UserGroupSpec{
-			DisplayName: "oncall",
-			CloudGroup:  &tcloudv1alpha1.CloudGroupSpec{},
-			Access: tcloudv1alpha1.AccountScopedAccess{
-				AccountAccess: &tcloudv1alpha1.AccountAccess{Role: tcloudv1alpha1.AccountRoleDeveloper},
-				NamespaceAccesses: []tcloudv1alpha1.NamespaceScopedAccess{
-					nsAccess(id("payments.acct"), tcloudv1alpha1.NamespacePermissionWrite),
+			expStatus: cloudcommon.ResourceStatus{
+				ID:               "group-1",
+				Version:          "rv-1",
+				State:            cloudcommon.ResourceStateActive,
+				AsyncOperationID: "op-1",
+				CreatedTime:      &metav1.Time{Time: created},
+				LastModifiedTime: &metav1.Time{Time: modified},
+			},
+		},
+		{
+			name: "google group yields its email address",
+			in: &tcloudidentityv1.UserGroup{
+				Id: "group-1",
+				Spec: &tcloudidentityv1.UserGroupSpec{
+					DisplayName: "Payments On Call",
+					GroupType: &tcloudidentityv1.UserGroupSpec_GoogleGroup{
+						GoogleGroup: &tcloudidentityv1.GoogleGroupSpec{EmailAddress: "oncall@example.com"},
+					},
 				},
 			},
-		}, got.Spec)
-		require.Equal(t, cloudcommon.ResourceStatus{
-			ID:               "group-1",
-			Version:          "rv-1",
-			State:            cloudcommon.ResourceStateActive,
-			AsyncOperationID: "op-1",
-			CreatedTime:      &metav1.Time{Time: created},
-			LastModifiedTime: &metav1.Time{Time: modified},
-		}, got.Status.Resource)
-		require.Equal(t, g.ObjectMeta, got.ObjectMeta)
-		require.Equal(t, g.Status.References, got.Status.References, "references are kept")
-	})
-
-	t.Run("a google group keeps its email address", func(t *testing.T) {
-		g := userGroupCR()
-
-		got := g.FromProto(&tcloudidentityv1.UserGroup{
-			Spec: &tcloudidentityv1.UserGroupSpec{
+			expSpec: tcloudv1alpha1.UserGroupSpec{
 				DisplayName: "Payments On Call",
-				GroupType: &tcloudidentityv1.UserGroupSpec_GoogleGroup{
-					GoogleGroup: &tcloudidentityv1.GoogleGroupSpec{EmailAddress: "oncall@example.com"},
+				GoogleGroup: &tcloudv1alpha1.GoogleGroupSpec{EmailAddress: "oncall@example.com"},
+			},
+			expStatus: cloudcommon.ResourceStatus{ID: "group-1"},
+		},
+		{
+			name: "scim group yields no group type",
+			in: &tcloudidentityv1.UserGroup{
+				Id: "group-1",
+				Spec: &tcloudidentityv1.UserGroupSpec{
+					DisplayName: "engineering",
+					GroupType: &tcloudidentityv1.UserGroupSpec_ScimGroup{
+						ScimGroup: &tcloudidentityv1.SCIMGroupSpec{IdpId: "idp-1"},
+					},
 				},
 			},
-		})
-
-		require.Equal(t, &tcloudv1alpha1.GoogleGroupSpec{EmailAddress: "oncall@example.com"}, got.Spec.GoogleGroup)
-		require.Nil(t, got.Spec.CloudGroup)
-	})
-
-	t.Run("a scim group has no group type", func(t *testing.T) {
-		g := userGroupCR()
-
-		got := g.FromProto(&tcloudidentityv1.UserGroup{
-			Spec: &tcloudidentityv1.UserGroupSpec{
-				DisplayName: "engineering",
-				GroupType: &tcloudidentityv1.UserGroupSpec_ScimGroup{
-					ScimGroup: &tcloudidentityv1.SCIMGroupSpec{IdpId: "idp-1"},
+			expSpec:   tcloudv1alpha1.UserGroupSpec{DisplayName: "engineering"},
+			expStatus: cloudcommon.ResourceStatus{ID: "group-1"},
+		},
+		{
+			name: "group without access yields an empty access",
+			in: &tcloudidentityv1.UserGroup{
+				Id: "group-1",
+				Spec: &tcloudidentityv1.UserGroupSpec{
+					DisplayName: "oncall",
+					GroupType:   cloudGroup,
 				},
 			},
-		})
-
-		require.Nil(t, got.Spec.GoogleGroup)
-		require.Nil(t, got.Spec.CloudGroup)
-	})
-
-	t.Run("a group without access has an empty access", func(t *testing.T) {
-		g := userGroupCR()
-
-		got := g.FromProto(&tcloudidentityv1.UserGroup{
-			Spec: &tcloudidentityv1.UserGroupSpec{
+			expSpec: tcloudv1alpha1.UserGroupSpec{
 				DisplayName: "oncall",
-				GroupType:   &tcloudidentityv1.UserGroupSpec_CloudGroup{CloudGroup: &tcloudidentityv1.CloudGroupSpec{}},
+				CloudGroup:  &tcloudv1alpha1.CloudGroupSpec{},
 			},
+			expStatus: cloudcommon.ResourceStatus{ID: "group-1"},
+		},
+		{
+			name: "nil proto yields only metadata and references",
+			in:   nil,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(tt *testing.T) {
+			require := require.New(tt)
+			g := userGroupCR()
+
+			got := g.FromProto(tc.in)
+
+			require.Equal(tc.expSpec, got.Spec)
+			require.Equal(tc.expStatus, got.Status.Resource)
+			require.Equal(g.ObjectMeta, got.ObjectMeta)
+			require.Equal(g.Status.References, got.Status.References, "references are kept")
 		})
-
-		require.Equal(t, tcloudv1alpha1.AccountScopedAccess{}, got.Spec.Access)
-	})
-
-	t.Run("nil proto keeps only metadata and references", func(t *testing.T) {
-		g := userGroupCR()
-
-		got := g.FromProto(nil)
-
-		require.Equal(t, g.ObjectMeta, got.ObjectMeta)
-		require.Equal(t, g.Status.References, got.Status.References)
-		require.Equal(t, tcloudv1alpha1.UserGroupSpec{}, got.Spec)
-		require.Equal(t, cloudcommon.ResourceStatus{}, got.Status.Resource)
-	})
+	}
 }
