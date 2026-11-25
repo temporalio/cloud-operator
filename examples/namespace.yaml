@@ -12,7 +12,8 @@ metadata:
   name: payments-prod
 spec:
   # The project to create the Namespace in. If not set, the account's default
-  # project is used. Cannot be changed after creation.
+  # project is used. Changing it moves the Namespace to the new project, which
+  # requires the Namespace to have no connectivity rules.
   # project: <project-id>
   tags:
     environment: production

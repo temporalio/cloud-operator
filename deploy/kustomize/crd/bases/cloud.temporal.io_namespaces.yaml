@@ -290,6 +290,7 @@ spec:
                 description: |-
                   Project contains *either* a Temporal Cloud Project identifier string
                   *or* a ProjectReference that points to a cloud.temporal.io/Project.
+                  If unspecified, the Namespace is created in the default Project.
                 properties:
                   id:
                     description: ID is the Temporal Cloud resource identifier.
@@ -372,10 +373,6 @@ spec:
                 type: object
             type: object
             x-kubernetes-validations:
-            - fieldPath: .project
-              message: project cannot be added, changed or removed after creation
-              rule: has(self.project) == has(oldSelf.project) && (!has(self.project)
-                || self.project == oldSelf.project)
             - fieldPath: .searchAttributes
               message: searchAttributes cannot be removed or have their type changed
               rule: '!has(oldSelf.searchAttributes) || (has(self.searchAttributes)
@@ -445,6 +442,36 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              projectMove:
+                description: |-
+                  ProjectMove describes the operator's last move of the Namespace to the
+                  project in spec.project. It is cleared once the move finishes.
+                properties:
+                  asyncOperationID:
+                    description: AsyncOperationID is the Temporal Cloud async operation
+                      for the move.
+                    type: string
+                  destinationProject:
+                    description: |-
+                      DestinationProject is the Temporal Cloud identifier of the project the
+                      Namespace is moving to.
+                    type: string
+                  failure:
+                    description: |-
+                      Failure is the error from a failed move. It is empty while the move is
+                      in progress.
+                    type: string
+                  generation:
+                    description: |-
+                      Generation is the CR's metadata.generation when the move started. A
+                      failed move is retried only once the generation changes.
+                    format: int64
+                    type: integer
+                required:
+                - asyncOperationID
+                - destinationProject
+                - generation
+                type: object
               references:
                 description: |-
                   References is an optional field containing the Temporal Cloud resource
