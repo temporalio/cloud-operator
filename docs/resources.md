@@ -8,6 +8,7 @@ Cloud.
 * [Namespace](#namespace)
   * [Create a Namespace](#create-a-namespace)
   * [Modify a Namespace](#modify-a-namespace)
+  * [Move a Namespace to a different project](#move-a-namespace-to-a-different-project)
   * [Delete a Namespace](#delete-a-namespace)
     * [Delete the Temporal Cloud Namespace](#delete-the-temporal-cloud-namespace)
     * [Keep the Temporal Cloud Namespace](#keep-the-temporal-cloud-namespace)
@@ -88,8 +89,7 @@ The API server checks that:
 * `replicas` and `retentionDays` are set, and `replicas` is not empty.
 * Enum values are valid, replica regions are unique, and exactly one capacity
   mode is set.
-* Updates do not add, change or remove `project`, and do not remove search
-  attributes or change their type.
+* Updates do not remove search attributes or change their type.
 
 Temporal Cloud reports all other errors, such as invalid tags or a retention
 period out of range. They appear in the resource's conditions.
@@ -114,10 +114,29 @@ namespace.cloud.temporal.io/payments-prod configured
 ```
 
 The operator updates the Temporal Cloud Namespace to match. You can't change a
-Namespace's name or `project`, or remove a search attribute. If you change
+Namespace's name or remove a search attribute. If you change
 `metadata.name`, Kubernetes treats it as a new resource. The operator creates a
 new, empty Temporal Cloud Namespace, and the old one stays until you delete its
 resource.
+
+### Move a Namespace to a different project
+
+Change `project` and apply the manifest again. Before the Namespace exists in
+Temporal Cloud, the operator creates it in the new project, which lets you fix a
+project ID that Temporal Cloud rejected. After that, the operator moves the
+Namespace to the new project. If someone moves the Namespace to a different
+project outside the operator, the operator moves it back to `project`. If
+`project` is not set, the operator never moves the Namespace.
+
+A Namespace with connectivity rules can't move, because connectivity rules
+belong to a project. Remove `connectivityRuleIDs` first. You can remove them in
+the same change as `project`, and the operator removes the rules before it moves
+the Namespace. Removing a Namespace's connectivity rules removes its network
+access restrictions.
+
+The move runs in Temporal Cloud as an async operation, which the resource's
+`status.projectMove` records. If the move fails, the resource reports the error
+and the operator doesn't retry it until you change the resource's spec.
 
 ### Delete a Namespace
 

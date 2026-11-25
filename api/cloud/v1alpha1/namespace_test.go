@@ -268,6 +268,45 @@ func TestNamespaceFromProto_Status(t *testing.T) {
 	}
 }
 
+func TestNamespaceFromProto_ProjectMove(t *testing.T) {
+	move := &v1alpha1.NamespaceProjectMove{
+		DestinationProject: "proj-new",
+		AsyncOperationID:   "op-1",
+		Generation:         3,
+		Failure:            "move failed",
+	}
+
+	cases := []struct {
+		name string
+		in   *tcloudnamespacev1.Namespace
+	}{
+		{
+			name: "nil namespace yields the CR's project move",
+		},
+		{
+			name: "namespace yields the CR's project move",
+			in: &tcloudnamespacev1.Namespace{
+				Namespace:        "my-ns.acct1",
+				ProjectId:        "proj-old",
+				AsyncOperationId: "op-other",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(tt *testing.T) {
+			require := require.New(tt)
+
+			ns := namespaceWithSpec(v1alpha1.NamespaceSpec{})
+			ns.Status.ProjectMove = move.DeepCopy()
+
+			got := ns.FromProto(tc.in)
+
+			require.Equal(move, got.Status.ProjectMove)
+			require.NotSame(ns.Status.ProjectMove, got.Status.ProjectMove)
+		})
+	}
+}
+
 func TestNamespaceFromProto_CopiesCollections(t *testing.T) {
 	require := require.New(t)
 
@@ -290,8 +329,8 @@ func TestNamespaceToProto(t *testing.T) {
 	// qualified ID and status fields of the full proto are left unset.
 	full := fullProtoNamespace()
 
-	// The namespace and project ID are actually set from the Namespace CR's
-	// Metadata and Status, respectively.
+	// The namespace ID comes from the Namespace CR's metadata, and the
+	// controller sets the project ID from spec.project.
 	full.Namespace = ""
 	full.ProjectId = ""
 

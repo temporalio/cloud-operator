@@ -39,8 +39,8 @@ type Namespace struct {
 // proto message.
 //
 // Project, tags and the status fields live on the outer Namespace message
-// rather than its spec, so they are set here. Object metadata is left
-// unchanged.
+// rather than its spec, so they are set here. Object metadata and
+// Status.ProjectMove are left unchanged.
 func (n Namespace) FromProto(in *tcloudnamespacev1.Namespace) *Namespace {
 	out := Namespace{
 		TypeMeta:   n.TypeMeta,
@@ -48,6 +48,9 @@ func (n Namespace) FromProto(in *tcloudnamespacev1.Namespace) *Namespace {
 	}
 	out.Spec.Project = n.Spec.Project
 	out.Spec.Tags = maps.Clone(n.Spec.Tags)
+	// Temporal Cloud doesn't report the move's async operation on the
+	// Namespace, so the operator's record of it is kept.
+	out.Status.ProjectMove = n.Status.ProjectMove.DeepCopy()
 
 	if in == nil {
 		return &out
@@ -77,9 +80,12 @@ func (n Namespace) FromProto(in *tcloudnamespacev1.Namespace) *Namespace {
 }
 
 // ToProto returns the Temporal Cloud Namespace that represents the spec. It
-// sets only the fields we send to Temporal Cloud: the spec, project and tags.
+// sets only the fields we send to Temporal Cloud: the spec and tags.
 // Requests take these as separate fields, so callers pick out the ones they
 // need. Status is never sent, so it is left unset.
+//
+// The project ID is left unset because spec.project may be a ref to a Project
+// CR, which needs a Kubernetes lookup to turn into an ID.
 //
 // The namespace name comes from the CR's metadata.name, because the CR has no
 // spec.name of its own.
@@ -87,9 +93,8 @@ func (n Namespace) ToProto() *tcloudnamespacev1.Namespace {
 	spec := n.Spec.toProto()
 	spec.Name = n.Name
 	return &tcloudnamespacev1.Namespace{
-		Spec:      spec,
-		ProjectId: n.Status.References.Project,
-		Tags:      maps.Clone(n.Spec.Tags),
+		Spec: spec,
+		Tags: maps.Clone(n.Spec.Tags),
 	}
 }
 
@@ -97,11 +102,11 @@ func (n Namespace) ToProto() *tcloudnamespacev1.Namespace {
 //
 // Ref: https://github.com/temporalio/cloud-api/blob/main/temporal/api/cloud/namespace/v1/message.proto
 // +k8s:openapi-gen=true
-// +kubebuilder:validation:XValidation:rule="has(self.project) == has(oldSelf.project) && (!has(self.project) || self.project == oldSelf.project)",message="project cannot be added, changed or removed after creation",fieldPath=".project"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.searchAttributes) || (has(self.searchAttributes) && oldSelf.searchAttributes.all(k, k in self.searchAttributes && self.searchAttributes[k] == oldSelf.searchAttributes[k]))",message="searchAttributes cannot be removed or have their type changed",fieldPath=".searchAttributes"
 type NamespaceSpec struct {
 	// Project contains *either* a Temporal Cloud Project identifier string
 	// *or* a ProjectReference that points to a cloud.temporal.io/Project.
+	// If unspecified, the Namespace is created in the default Project.
 	// +optional
 	Project *cloudcommon.ResourceReferenceOrID `json:"project,omitempty"`
 	// Tags are key-value pairs to attach to the Namespace.
@@ -1002,6 +1007,26 @@ type NamespaceStatus struct {
 	// References is an optional field containing the Temporal Cloud resource
 	// IDs for any related resources.
 	References NamespaceReferences `json:"references,omitempty"`
+	// ProjectMove describes the operator's last move of the Namespace to the
+	// project in spec.project. It is cleared once the move finishes.
+	// +optional
+	ProjectMove *NamespaceProjectMove `json:"projectMove,omitempty"`
+}
+
+// NamespaceProjectMove describes a move of a Namespace to a different project.
+type NamespaceProjectMove struct {
+	// DestinationProject is the Temporal Cloud identifier of the project the
+	// Namespace is moving to.
+	DestinationProject string `json:"destinationProject"`
+	// AsyncOperationID is the Temporal Cloud async operation for the move.
+	AsyncOperationID string `json:"asyncOperationID"`
+	// Generation is the CR's metadata.generation when the move started. A
+	// failed move is retried only once the generation changes.
+	Generation int64 `json:"generation"`
+	// Failure is the error from a failed move. It is empty while the move is
+	// in progress.
+	// +optional
+	Failure string `json:"failure,omitempty"`
 }
 
 // NamespaceReferences is an optional field containing the

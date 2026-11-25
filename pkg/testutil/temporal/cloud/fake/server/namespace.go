@@ -349,3 +349,26 @@ func (s fakeServer) CreateNamespace(
 	}
 	return s.UnimplementedCloudServiceServer.CreateNamespace(ctx, req)
 }
+
+type MoveNamespaceToProjectFunc func(
+	context.Context,
+	*tcloudservicev1.MoveNamespaceToProjectRequest,
+) (*tcloudservicev1.MoveNamespaceToProjectResponse, error)
+
+// WithMoveNamespaceToProject sets the fake server's MoveNamespaceToProject
+// function override.
+func WithMoveNamespaceToProject(fn MoveNamespaceToProjectFunc) NewOption {
+	return func(s *fakeServer) {
+		s.moveNamespaceToProjectFunc = fn
+	}
+}
+
+func (s fakeServer) MoveNamespaceToProject(
+	ctx context.Context,
+	req *tcloudservicev1.MoveNamespaceToProjectRequest,
+) (*tcloudservicev1.MoveNamespaceToProjectResponse, error) {
+	if s.moveNamespaceToProjectFunc != nil {
+		return s.moveNamespaceToProjectFunc(ctx, req)
+	}
+	return s.UnimplementedCloudServiceServer.MoveNamespaceToProject(ctx, req)
+}

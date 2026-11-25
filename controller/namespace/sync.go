@@ -12,6 +12,8 @@ import (
 	"github.com/temporalio/kube-temporal/pkg/controller/requeue"
 	kttypes "github.com/temporalio/kube-temporal/pkg/types"
 	tcloudservicev1 "go.temporal.io/cloud-sdk/api/cloudservice/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"k8s.io/apimachinery/pkg/api/equality"
 
 	cloudcommon "github.com/temporalio/cloud-operator/api/cloud/common"
@@ -93,6 +95,17 @@ func (r *Reconciler) ResourceSync(
 			ProjectId: projectID,
 		})
 		if err != nil {
+			// Temporal Cloud returns NotFound for a project ID that doesn't
+			// exist, and PermissionDenied when projects aren't enabled for the
+			// account. The user has to fix spec.project or the account, so
+			// retrying won't help.
+			if code := status.Code(err); projectID != "" &&
+				(code == codes.NotFound || code == codes.PermissionDenied) {
+				return updated, ctrlerrors.NewTerminalError(fmt.Errorf(
+					"%w: failed creating tcloud namespace in project %q: %w",
+					ctrlerrors.ErrResourceSync, projectID, err,
+				))
+			}
 			return updated, cloud.CallError("creating tcloud namespace", err)
 		}
 		return updated, requeue.NeededAfter(
@@ -103,23 +116,31 @@ func (r *Reconciler) ResourceSync(
 
 	desiredNS := desired.CR().(*tcloudv1alpha1.Namespace)
 	latestNS := latest.CR().(*tcloudv1alpha1.Namespace)
+	updatedNS := updated.CR().(*tcloudv1alpha1.Namespace)
 
-	// The namespace could be in another project when the CR is linked to an
-	// existing namespace, it was moved outside the operator, or the
-	// referenced Project was recreated.
-	projectID, err := r.resolveProjectID(ctx, desiredNS)
-	if err != nil && !errors.Is(err, reference.ErrNotReady) {
+	// A move can't be cancelled, so a spec change waits for the move in
+	// progress to finish.
+	if m := latestNS.Status.ProjectMove; m != nil && m.Failure == "" {
+		err = checkProjectMove(ctx, tcc, resourceID, updatedNS)
 		return updated, err
 	}
+
+	// moveTo is the project the Namespace must move to, or empty when it is
+	// already in the project spec.project refers to. An unset project never
+	// moves the Namespace. A ref that can't be resolved anymore, such as one
+	// to a deleted Project CR, leaves the Namespace where it is.
+	projectID, resolveErr := r.resolveProjectID(ctx, desiredNS)
+	if resolveErr != nil && !errors.Is(resolveErr, reference.ErrNotReady) {
+		return updated, resolveErr
+	}
+	var moveTo string
 	if projectID != "" && projectID != latestNS.Status.References.Project {
-		return updated, ctrlerrors.NewTerminalError(
-			fmt.Errorf(
-				"%w: tcloud namespace %q is in project %q "+
-					"but spec.project is %q",
-				ctrlerrors.ErrResourceSync, resourceID,
-				latestNS.Status.References.Project, projectID,
-			),
-		)
+		moveTo = projectID
+	}
+	if moveTo == "" {
+		updatedNS.Status.ProjectMove = nil
+	} else if err = checkMoveAllowed(resourceID, moveTo, desiredNS, latestNS); err != nil {
+		return updated, err
 	}
 
 	// Only an Active namespace accepts new operations.
@@ -167,6 +188,13 @@ func (r *Reconciler) ResourceSync(
 			),
 			requeue.DefaultRequeueAfterDuration,
 		)
+	}
+
+	// The move runs after the update so that clearing spec.connectivityRuleIDs
+	// and changing spec.project in one edit removes the rules before the move.
+	if moveTo != "" {
+		err = moveNamespace(ctx, tcc, resourceID, moveTo, desiredNS, latestNS, updatedNS)
+		return updated, err
 	}
 
 	return updated, nil
