@@ -2,6 +2,7 @@ package usergroup_test
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -36,14 +37,20 @@ func TestReconciler_ResourceLatest(t *testing.T) {
 		AsyncOperationId: "op-cloud",
 		Spec:             cloudSpec(),
 	}
+	// fromCloudSpec is fromCloud's spec with the members GetUserGroupMembers
+	// returns over two pages.
+	fromCloudSpec := tcloudv1alpha1.UserGroupSpec{}.FromProto(cloudSpec())
+	fromCloudSpec.CloudGroup.Members = []cloudcommon.ResourceReferenceOrID{id("user-1"), id("user-2")}
 	notFound := status.Error(codes.NotFound, "user group not found")
 
 	cases := []struct {
-		name        string
-		cr          *tcloudv1alpha1.UserGroup
-		kubeObjs    []runtime.Object
-		getGroup    *tcloudidentityv1.UserGroup
-		getErr      error
+		name     string
+		cr       *tcloudv1alpha1.UserGroup
+		kubeObjs []runtime.Object
+		getGroup *tcloudidentityv1.UserGroup
+		getErr   error
+		// memberPages are the user IDs on each page GetUserGroupMembers returns.
+		memberPages [][]string
 		expGetIDs   []string
 		expSpec     tcloudv1alpha1.UserGroupSpec
 		expResource cloudcommon.ResourceStatus
@@ -61,12 +68,13 @@ func TestReconciler_ResourceLatest(t *testing.T) {
 			},
 		},
 		{
-			name:      "created group yields its spec and status from temporal cloud",
-			cr:        linkedUserGroup(cloudcommon.ResourceStateActive, ""),
-			kubeObjs:  payments,
-			getGroup:  fromCloud,
-			expGetIDs: []string{groupID},
-			expSpec:   tcloudv1alpha1.UserGroupSpec{}.FromProto(cloudSpec()),
+			name:        "created group yields its spec and status from temporal cloud",
+			cr:          linkedUserGroup(cloudcommon.ResourceStateActive, ""),
+			kubeObjs:    payments,
+			getGroup:    fromCloud,
+			memberPages: [][]string{{"user-1"}, {"user-2"}},
+			expGetIDs:   []string{groupID},
+			expSpec:     fromCloudSpec,
 			expResource: cloudcommon.ResourceStatus{
 				ID:               groupID,
 				Version:          "rv-2",
@@ -108,7 +116,12 @@ func TestReconciler_ResourceLatest(t *testing.T) {
 				gotGetIDs = append(gotGetIDs, req.GetGroupId())
 				return &tcloudservicev1.GetUserGroupResponse{Group: tc.getGroup}, tc.getErr
 			})
-			r := newReconciler(tt, tc.kubeObjs, getUserGroup)
+			getMembers := fakeserver.WithGetUserGroupMembers(func(
+				_ context.Context, req *tcloudservicev1.GetUserGroupMembersRequest,
+			) (*tcloudservicev1.GetUserGroupMembersResponse, error) {
+				return memberPage(tc.memberPages, req.GetPageToken()), nil
+			})
+			r := newReconciler(tt, tc.kubeObjs, getUserGroup, getMembers)
 			current := usergroup.NewResource(tc.cr.DeepCopy())
 			before := current.DeepCopy()
 
@@ -126,4 +139,30 @@ func TestReconciler_ResourceLatest(t *testing.T) {
 			require.Equal(tc.expRefs, userGroupOf(got).Status.References)
 		})
 	}
+}
+
+// memberPage returns the page of pages that pageToken asks for. The token of
+// page i is "page-i", and the first page has no token.
+func memberPage(pages [][]string, pageToken string) *tcloudservicev1.GetUserGroupMembersResponse {
+	resp := &tcloudservicev1.GetUserGroupMembersResponse{}
+	for i, page := range pages {
+		token := ""
+		if i > 0 {
+			token = fmt.Sprintf("page-%d", i)
+		}
+		if token != pageToken {
+			continue
+		}
+		for _, userID := range page {
+			resp.Members = append(resp.Members, &tcloudidentityv1.UserGroupMember{
+				MemberId: &tcloudidentityv1.UserGroupMemberId{
+					MemberType: &tcloudidentityv1.UserGroupMemberId_UserId{UserId: userID},
+				},
+			})
+		}
+		if i+1 < len(pages) {
+			resp.NextPageToken = fmt.Sprintf("page-%d", i+1)
+		}
+	}
+	return resp
 }

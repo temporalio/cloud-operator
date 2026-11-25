@@ -112,6 +112,10 @@ func ref(name string) cloudcommon.ResourceReferenceOrID {
 	return cloudcommon.ResourceReferenceOrID{Ref: &cloudcommon.ResourceReference{Name: name}}
 }
 
+func id(s string) cloudcommon.ResourceReferenceOrID {
+	return cloudcommon.ResourceReferenceOrID{ID: s}
+}
+
 // cloudSpec is the Temporal Cloud spec for the user group returned by
 // newUserGroup, with its namespace resolved to nsID.
 func cloudSpec() *tcloudidentityv1.UserGroupSpec {
