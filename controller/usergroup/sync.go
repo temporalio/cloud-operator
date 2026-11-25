@@ -19,9 +19,6 @@ import (
 	"github.com/temporalio/cloud-operator/pkg/types"
 )
 
-// TODO: move to controller.go once it exists.
-const resourceKind = "user group"
-
 // ResourceSync creates the Temporal Cloud user group if it doesn't exist yet,
 // and otherwise updates it to match `desired`. It returns a copy of `latest`
 // with any status changes.
@@ -61,10 +58,10 @@ func (r *Reconciler) ResourceSync(
 		err = createUserGroup(ctx, tcc, desiredGroup, updatedGroup)
 		return updated, err
 	case latestGroup.Status.Resource.State == "":
-		// ResourceLatest kept the ID, but GetUserGroup returned NotFound. A
-		// create that hasn't finished yet has an operation to wait for.
-		// Otherwise the group was deleted outside of the operator, and it is
-		// created again like a Service Account would be.
+		// In this case ResourceLatest kept the ID, but GetUserGroup returned NotFound.
+		// This is either a CREATE operation that hasn't finished yet or
+		// the user group was deleted outside of the operator, and it is
+		// created again.
 		if opID := latestGroup.Status.Resource.AsyncOperationID; opID != "" {
 			if err = checkCreate(ctx, tcc, latestGroup.Status.Resource.ID, opID); err != nil {
 				return updated, err
@@ -133,7 +130,7 @@ func checkCreate(
 
 // updateUserGroup makes at most one Temporal Cloud call to move an existing
 // user group toward the desired state. An update starts an async operation,
-// so after it we requeue and let the next reconcile observe the result.
+// so after it, we requeue and let the next reconcile observe the result.
 func updateUserGroup(
 	ctx context.Context,
 	tcc tcloudservicev1.CloudServiceClient,
@@ -152,9 +149,8 @@ func updateUserGroup(
 	var none tcloudv1alpha1.UserGroupReferences
 	got := latest.Spec.ToProto(latest.Namespace, none)
 
-	// The CR can't change its group type (CEL), and Temporal Cloud rejects
-	// changing it, so a mismatch means the group isn't the one the spec
-	// describes.
+	// Temporal Cloud does not allow changing a user group's type. The spec can't change
+	// it either (CEL), so a mismatch means the group isn't the one the spec describes.
 	if msg, mismatch := groupTypeMismatch(want, got); mismatch {
 		return ctrlerrors.NewTerminalError(
 			fmt.Errorf(
@@ -164,9 +160,6 @@ func updateUserGroup(
 		)
 	}
 
-	// Desired can have refs where latest has their resolved IDs, so compare the
-	// protos that would be sent to Temporal Cloud. Temporal Cloud rejects an
-	// update that changes nothing.
 	if proto.Equal(want, got) {
 		return nil
 	}
@@ -225,44 +218,72 @@ func checkReferences(
 		id, _ := refs.NamespaceID(*nr.refOrID.Ref, cr.Namespace)
 		check.Pending(nr.path, nr.refOrID, id)
 	}
-
-	access := cr.Spec.Access
-	for i, e := range access.ProjectAccesses {
-		check.Unsupported(fmt.Sprintf("spec.access.projectAccesses[%d].project", i), e.Project)
+	for _, pr := range projectRefs(cr.Spec) {
+		id, _ := refs.ProjectID(*pr.refOrID.Ref, cr.Namespace)
+		check.Pending(pr.path, pr.refOrID, id)
 	}
-	if access.AccountAccess != nil {
-		for i, customRole := range access.AccountAccess.CustomRoles {
+
+	if a := cr.Spec.Access.AccountAccess; a != nil {
+		for i, customRole := range a.CustomRoles {
 			check.Unsupported(fmt.Sprintf("spec.access.accountAccess.customRoles[%d]", i), customRole)
 		}
 	}
 	if err := checkDuplicateNamespaces(cr, refs); err != nil {
 		return err
 	}
+	if err := checkDuplicateProjects(cr, refs); err != nil {
+		return err
+	}
 	return check.Err()
 }
 
 // checkDuplicateNamespaces returns a terminal error when two namespace accesses
-// in the spec refer to the same Temporal Cloud namespace.Ex:
-// {ref: payments} and {id: payments.acct1}
+// in the spec refer to the same Temporal Cloud namespace.
 func checkDuplicateNamespaces(
 	cr *tcloudv1alpha1.UserGroup,
 	refs tcloudv1alpha1.UserGroupReferences,
 ) error {
-	const path = "spec.access.namespaceAccesses"
-	seen := map[string]int{}
-	for i, e := range cr.Spec.Access.NamespaceAccesses {
-		id := e.Namespace.ID
+	entries := cr.Spec.Access.NamespaceAccesses
+	ids := make([]string, len(entries))
+	for i, e := range entries {
+		ids[i] = e.Namespace.ID
 		if e.Namespace.Ref != nil {
-			id, _ = refs.NamespaceID(*e.Namespace.Ref, cr.Namespace)
+			ids[i], _ = refs.NamespaceID(*e.Namespace.Ref, cr.Namespace)
 		}
+	}
+	return checkDuplicateIDs("spec.access.namespaceAccesses", "namespace", ids)
+}
+
+// checkDuplicateProjects returns a terminal error when two project accesses in
+// the spec refer to the same Temporal Cloud project.
+func checkDuplicateProjects(
+	cr *tcloudv1alpha1.UserGroup,
+	refs tcloudv1alpha1.UserGroupReferences,
+) error {
+	entries := cr.Spec.Access.ProjectAccesses
+	ids := make([]string, len(entries))
+	for i, e := range entries {
+		ids[i] = e.Project.ID
+		if e.Project.Ref != nil {
+			ids[i], _ = refs.ProjectID(*e.Project.Ref, cr.Namespace)
+		}
+	}
+	return checkDuplicateIDs("spec.access.projectAccesses", "project", ids)
+}
+
+// checkDuplicateIDs returns a terminal error when two entries of the list at
+// path have the same Temporal Cloud ID.
+func checkDuplicateIDs(path, field string, ids []string) error {
+	seen := map[string]int{}
+	for i, id := range ids {
 		if id == "" {
 			continue
 		}
 		if first, ok := seen[id]; ok {
 			return ctrlerrors.NewTerminalError(
 				fmt.Errorf(
-					"%w: %s[%d].namespace and %s[%d].namespace both refer to tcloud namespace %q",
-					ctrlerrors.ErrResourceSync, path, first, path, i, id,
+					"%w: %s[%d].%s and %s[%d].%s both refer to tcloud %s %q",
+					ctrlerrors.ErrResourceSync, path, first, field, path, i, field, field, id,
 				),
 			)
 		}

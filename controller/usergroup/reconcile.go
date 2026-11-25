@@ -47,3 +47,5 @@ func (r *Reconciler) ResourceFromRequest(
 	}
 	return NewResource(cr), nil
 }
+
+var _ types.Reconciler = (*Reconciler)(nil)

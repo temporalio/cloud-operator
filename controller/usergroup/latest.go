@@ -46,26 +46,26 @@ func (r *Reconciler) ResourceLatest(
 		return latest, fmt.Errorf("failed resolving references: %w", err)
 	}
 
-	var tcloudUserGroup *tcloudidentityv1.UserGroup
+	var tcloudGroup *tcloudidentityv1.UserGroup
 	if latest.PreviouslyReconciled() {
 		var resp *tcloudservicev1.GetUserGroupResponse
 		resp, err = tcc.GetUserGroup(ctx, &tcloudservicev1.GetUserGroupRequest{
 			GroupId: latest.ResourceID(),
 		})
 		if status.Code(err) == codes.NotFound {
-			// Either the user was deleted on tcloud or it was
+			// Either the user group was deleted on tcloud or it was
 			// just created and the operation has not completed it yet
 			// GetUserGroup can't tell these apart, so ResourceSync decides
 			err = nil
 		} else if err != nil {
 			return latest, fmt.Errorf("failed getting tcloud user group: %w", err)
 		}
-		tcloudUserGroup = resp.GetGroup()
+		tcloudGroup = resp.GetGroup()
 	}
 
-	if tcloudUserGroup == nil {
+	if tcloudGroup == nil {
 		// The UserGroup does not exist in Temporal Cloud, so we empty the spec and status.
-		// We keep the refs because CREATE needs the namespace IDs. The ID
+		// We keep the refs because CREATE needs the namespace and project IDs. The ID
 		// is kept so ResourceSync doesn't create a second group.
 		var resource cloudcommon.ResourceStatus
 		resource.ID = cr.Status.Resource.ID
@@ -78,43 +78,73 @@ func (r *Reconciler) ResourceLatest(
 	}
 
 	cr.Status.References = refs
-	*cr = *cr.FromProto(tcloudUserGroup)
+	*cr = *cr.FromProto(tcloudGroup)
 	return latest, nil
 }
 
-// resolveReferences returns the Temporal Cloud IDs of the Namespace custom
-// resources that the CR's spec refers to.
+// resolveReferences returns the Temporal Cloud IDs of the Namespace and
+// Project custom resources that the CR's spec refers to.
 func (r *Reconciler) resolveReferences(
 	ctx context.Context,
 	cr *tcloudv1alpha1.UserGroup,
 ) (tcloudv1alpha1.UserGroupReferences, error) {
 	var out tcloudv1alpha1.UserGroupReferences
+	var err error
+	out.Namespaces, err = resolve(
+		ctx, r.KubeReader(), cr.Namespace, namespaceRefs(cr.Spec),
+		reference.ResolveNamespaceID,
+	)
+	if err != nil {
+		return out, err
+	}
+	out.Projects, err = resolve(
+		ctx, r.KubeReader(), cr.Namespace, projectRefs(cr.Spec),
+		reference.ResolveProjectID,
+	)
+	return out, err
+}
+
+// resolve returns a resolved reference for each custom resource in refs that
+// resolveID reports ready. Refs that aren't ready yet are left out.
+func resolve(
+	ctx context.Context,
+	kr client.Reader,
+	referrerNamespace string,
+	refs []specRef,
+	resolveID func(
+		context.Context, client.Reader, string, cloudcommon.ResourceReferenceOrID,
+	) (string, error),
+) ([]cloudcommon.ResolvedReference, error) {
+	var out []cloudcommon.ResolvedReference
+	// The spec might reference the same custom resource more than once by
+	// mistake. However, it is only listed once in the resolved references.
 	seen := map[client.ObjectKey]bool{}
-	for _, nr := range namespaceRefs(cr.Spec) {
-		key := client.ObjectKey{Namespace: nr.refOrID.Ref.Namespace, Name: nr.refOrID.Ref.Name}
+	for _, sr := range refs {
+		key := client.ObjectKey{Namespace: sr.refOrID.Ref.Namespace, Name: sr.refOrID.Ref.Name}
 		if key.Namespace == "" {
-			key.Namespace = cr.Namespace
+			key.Namespace = referrerNamespace
 		}
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
 
-		id, err := reference.ResolveNamespaceID(ctx, r.KubeReader(), cr.Namespace, nr.refOrID)
+		id, err := resolveID(ctx, kr, referrerNamespace, sr.refOrID)
 		if errors.Is(err, reference.ErrNotReady) {
 			continue
 		}
 		if err != nil {
 			return out, err
 		}
-		out.Namespaces = append(out.Namespaces, cloudcommon.ResolvedReference{
+		out = append(out, cloudcommon.ResolvedReference{
 			Namespace: key.Namespace, Name: key.Name, ID: id,
 		})
 	}
 	return out, nil
 }
 
-type namespaceRef struct {
+// specRef is a ref in a UserGroup spec, with its path.
+type specRef struct {
 	path    string
 	refOrID cloudcommon.ResourceReferenceOrID
 }
@@ -122,13 +152,29 @@ type namespaceRef struct {
 // namespaceRefs returns every Namespace ref in the supplied spec, together
 // with where it sits in the spec, for example
 // spec.access.namespaceAccesses[1].namespace.
-func namespaceRefs(spec tcloudv1alpha1.UserGroupSpec) []namespaceRef {
-	var out []namespaceRef
+func namespaceRefs(spec tcloudv1alpha1.UserGroupSpec) []specRef {
+	var out []specRef
 	for i, e := range spec.Access.NamespaceAccesses {
 		if e.Namespace.Ref != nil {
-			out = append(out, namespaceRef{
+			out = append(out, specRef{
 				path:    fmt.Sprintf("spec.access.namespaceAccesses[%d].namespace", i),
 				refOrID: e.Namespace,
+			})
+		}
+	}
+	return out
+}
+
+// projectRefs returns every Project ref in the supplied spec, together with
+// where it sits in the spec, for example
+// spec.access.projectAccesses[1].project.
+func projectRefs(spec tcloudv1alpha1.UserGroupSpec) []specRef {
+	var out []specRef
+	for i, e := range spec.Access.ProjectAccesses {
+		if e.Project.Ref != nil {
+			out = append(out, specRef{
+				path:    fmt.Sprintf("spec.access.projectAccesses[%d].project", i),
+				refOrID: e.Project,
 			})
 		}
 	}

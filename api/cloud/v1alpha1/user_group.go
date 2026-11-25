@@ -107,6 +107,13 @@ type UserGroupReferences struct {
 	// +listMapKey=namespace
 	// +listMapKey=name
 	Namespaces []cloudcommon.ResolvedReference `json:"namespaces,omitempty"`
+	// Projects are the Project CRs referenced by the spec that have a
+	// Temporal Cloud ID.
+	// +optional
+	// +listType=map
+	// +listMapKey=namespace
+	// +listMapKey=name
+	Projects []cloudcommon.ResolvedReference `json:"projects,omitempty"`
 }
 
 // NamespaceID returns the Temporal Cloud ID of the Namespace CR that the
@@ -115,16 +122,16 @@ func (r UserGroupReferences) NamespaceID(
 	ref cloudcommon.ResourceReference,
 	referrerNamespace string,
 ) (string, bool) {
-	namespace := ref.Namespace
-	if namespace == "" {
-		namespace = referrerNamespace
-	}
-	for _, resolved := range r.Namespaces {
-		if resolved.Namespace == namespace && resolved.Name == ref.Name {
-			return resolved.ID, true
-		}
-	}
-	return "", false
+	return cloudcommon.ResolvedID(r.Namespaces, ref, referrerNamespace)
+}
+
+// ProjectID returns the Temporal Cloud ID of the Project CR that the supplied
+// reference points to, and whether it has been resolved.
+func (r UserGroupReferences) ProjectID(
+	ref cloudcommon.ResourceReference,
+	referrerNamespace string,
+) (string, bool) {
+	return cloudcommon.ResolvedID(r.Projects, ref, referrerNamespace)
 }
 
 // UserGroupList is a list of UserGroup resources.
@@ -182,11 +189,12 @@ func (s UserGroupSpec) FromProto(in *tcloudidentityv1.UserGroupSpec) UserGroupSp
 	return out
 }
 
+// ToProto returns the Temporal Cloud UserGroupSpec for the spec, with each
+// Namespace and Project ref replaced by its ID from `refs`.
 func (s UserGroupSpec) ToProto(
 	referrerNamespace string,
 	refs UserGroupReferences,
 ) *tcloudidentityv1.UserGroupSpec {
-
 	namespaceID := func(namespace cloudcommon.ResourceReferenceOrID) string {
 		if namespace.Ref == nil {
 			return namespace.ID
@@ -194,10 +202,17 @@ func (s UserGroupSpec) ToProto(
 		id, _ := refs.NamespaceID(*namespace.Ref, referrerNamespace)
 		return id
 	}
+	projectID := func(project cloudcommon.ResourceReferenceOrID) string {
+		if project.Ref == nil {
+			return project.ID
+		}
+		id, _ := refs.ProjectID(*project.Ref, referrerNamespace)
+		return id
+	}
 
 	out := &tcloudidentityv1.UserGroupSpec{
 		DisplayName: s.DisplayName,
-		Access:      s.Access.toProto(namespaceID),
+		Access:      s.Access.toProto(namespaceID, projectID),
 	}
 	switch {
 	case s.GoogleGroup != nil:

@@ -21,6 +21,7 @@ import (
 	ctrlproject "github.com/temporalio/cloud-operator/controller/project"
 	ctrlserviceaccount "github.com/temporalio/cloud-operator/controller/serviceaccount"
 	ctrluser "github.com/temporalio/cloud-operator/controller/user"
+	ctrlusergroup "github.com/temporalio/cloud-operator/controller/usergroup"
 	"github.com/temporalio/cloud-operator/pkg/reconciler/base"
 	"github.com/temporalio/cloud-operator/pkg/version"
 	ktcontroller "github.com/temporalio/kube-temporal/pkg/controller"
@@ -117,6 +118,11 @@ func main() {
 			base.WithDefaultCloudClient(*tcc),
 		),
 		ctrluser.New(
+			cfg,
+			rootLogger,
+			base.WithDefaultCloudClient(*tcc),
+		),
+		ctrlusergroup.New(
 			cfg,
 			rootLogger,
 			base.WithDefaultCloudClient(*tcc),

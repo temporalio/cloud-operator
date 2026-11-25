@@ -41,6 +41,11 @@ type fakeServer struct {
 	getUserFunc    GetUserFunc
 	updateUserFunc UpdateUserFunc
 	deleteUserFunc DeleteUserFunc
+
+	createUserGroupFunc CreateUserGroupFunc
+	getUserGroupFunc    GetUserGroupFunc
+	updateUserGroupFunc UpdateUserGroupFunc
+	deleteUserGroupFunc DeleteUserGroupFunc
 }
 
 // HostPort returns the address of the TCP localhost port that the fake server
