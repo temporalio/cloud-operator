@@ -12,9 +12,10 @@ import (
 // +kubebuilder:rbac:groups=cloud.temporal.io,resources=usergroups,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cloud.temporal.io,resources=usergroups/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=cloud.temporal.io,resources=usergroups/finalizers,verbs=update
-// User groups can reference Namespace and Project custom resources.
+// User groups can reference Namespace, Project and User custom resources.
 // +kubebuilder:rbac:groups=cloud.temporal.io,resources=namespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cloud.temporal.io,resources=projects,verbs=get;list;watch
+// +kubebuilder:rbac:groups=cloud.temporal.io,resources=users,verbs=get;list;watch
 
 const (
 	ControllerName = "usergroup"

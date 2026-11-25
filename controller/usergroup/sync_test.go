@@ -303,3 +303,118 @@ func TestReconciler_ResourceSync_Update(t *testing.T) {
 		})
 	}
 }
+
+// recordMembers records the AddUserGroupMember and RemoveUserGroupMember
+// requests so tests can check which one was called.
+func recordMembers() (
+	*atomic.Pointer[tcloudservicev1.AddUserGroupMemberRequest],
+	*atomic.Pointer[tcloudservicev1.RemoveUserGroupMemberRequest],
+	[]fakeserver.NewOption,
+) {
+	var added atomic.Pointer[tcloudservicev1.AddUserGroupMemberRequest]
+	var removed atomic.Pointer[tcloudservicev1.RemoveUserGroupMemberRequest]
+	return &added, &removed, []fakeserver.NewOption{
+		fakeserver.WithAddUserGroupMember(func(
+			_ context.Context, req *tcloudservicev1.AddUserGroupMemberRequest,
+		) (*tcloudservicev1.AddUserGroupMemberResponse, error) {
+			added.Store(req)
+			return &tcloudservicev1.AddUserGroupMemberResponse{}, nil
+		}),
+		fakeserver.WithRemoveUserGroupMember(func(
+			_ context.Context, req *tcloudservicev1.RemoveUserGroupMemberRequest,
+		) (*tcloudservicev1.RemoveUserGroupMemberResponse, error) {
+			removed.Store(req)
+			return &tcloudservicev1.RemoveUserGroupMemberResponse{}, nil
+		}),
+	}
+}
+
+func TestReconciler_ResourceSync_Members(t *testing.T) {
+	const (
+		aliceName = "alice"
+		aliceID   = "user-1"
+		bobID     = "user-2"
+	)
+	// withMembers returns a copy of g with the supplied members.
+	withMembers := func(
+		g *tcloudv1alpha1.UserGroup, members ...cloudcommon.ResourceReferenceOrID,
+	) *tcloudv1alpha1.UserGroup {
+		g = g.DeepCopy()
+		g.Spec.CloudGroup.Members = members
+		return g
+	}
+	aliceResolved := func(g *tcloudv1alpha1.UserGroup) *tcloudv1alpha1.UserGroup {
+		g = g.DeepCopy()
+		g.Status.References.Users = []cloudcommon.ResolvedReference{
+			{Namespace: kubeNamespace, Name: aliceName, ID: aliceID},
+		}
+		return g
+	}
+
+	cases := []struct {
+		name       string
+		desired    *tcloudv1alpha1.UserGroup
+		latest     *tcloudv1alpha1.UserGroup
+		expErrKind string
+		expErr     string
+		expAdded   string
+		expRemoved string
+	}{
+		{
+			name:       "member missing from temporal cloud yields an add",
+			desired:    withMembers(desired, ref(aliceName)),
+			latest:     aliceResolved(active),
+			expErrKind: kindRequeue,
+			expErr:     `added user "user-1" to tcloud user group "group-1"`,
+			expAdded:   aliceID,
+		},
+		{
+			name:       "member not in the spec yields a remove",
+			desired:    withMembers(desired, ref(aliceName)),
+			latest:     aliceResolved(withMembers(active, id(aliceID), id(bobID))),
+			expErrKind: kindRequeue,
+			expErr:     `removed user "user-2" from tcloud user group "group-1"`,
+			expRemoved: bobID,
+		},
+		{
+			name:    "matching members yield no change",
+			desired: withMembers(desired, ref(aliceName), id(bobID)),
+			latest:  aliceResolved(withMembers(active, id(bobID), id(aliceID))),
+		},
+		{
+			name:       "unresolved user ref yields a wait without a change",
+			desired:    withMembers(desired, ref(aliceName)),
+			latest:     active,
+			expErrKind: kindRequeue,
+			expErr:     "spec.cloudGroup.members[0] (apps/alice)",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(tt *testing.T) {
+			require := require.New(tt)
+			added, removed, serverOpts := recordMembers()
+
+			got, err := runSync(tt, tc.desired, tc.latest, serverOpts...)
+
+			requireErrKind(tt, tc.expErrKind, err)
+			if tc.expErr != "" {
+				require.ErrorContains(err, tc.expErr)
+			}
+			if tc.expAdded == "" {
+				require.Nil(added.Load())
+			} else {
+				require.NotNil(added.Load())
+				require.Equal(groupID, added.Load().GetGroupId())
+				require.Equal(tc.expAdded, added.Load().GetMemberId().GetUserId())
+			}
+			if tc.expRemoved == "" {
+				require.Nil(removed.Load())
+			} else {
+				require.NotNil(removed.Load())
+				require.Equal(groupID, removed.Load().GetGroupId())
+				require.Equal(tc.expRemoved, removed.Load().GetMemberId().GetUserId())
+			}
+			require.Equal(tc.latest.Status, userGroupOf(got).Status, "a member change must not change status")
+		})
+	}
+}

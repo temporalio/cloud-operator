@@ -269,3 +269,201 @@ func (s fakeServer) DeleteUserGroup(
 	}
 	return s.UnimplementedCloudServiceServer.DeleteUserGroup(ctx, req)
 }
+
+type AddUserGroupMemberFunc func(
+	context.Context,
+	*tcloudservicev1.AddUserGroupMemberRequest,
+) (*tcloudservicev1.AddUserGroupMemberResponse, error)
+
+// WithAddUserGroupMember sets the fake server's AddUserGroupMember function override.
+func WithAddUserGroupMember(fn AddUserGroupMemberFunc) NewOption {
+	return func(s *fakeServer) {
+		s.addUserGroupMemberFunc = fn
+	}
+}
+
+// OnAddUserGroupMember lets tests validate arguments passed to AddUserGroupMember and set its
+// response.
+func OnAddUserGroupMember(
+	asserter func(*tcloudservicev1.AddUserGroupMemberRequest),
+	returner func() (*tcloudservicev1.AddUserGroupMemberResponse, error),
+) NewOption {
+	return func(s *fakeServer) {
+		fn := func(
+			ctx context.Context, req *tcloudservicev1.AddUserGroupMemberRequest,
+		) (*tcloudservicev1.AddUserGroupMemberResponse, error) {
+			if asserter != nil {
+				asserter(req)
+			}
+			if returner == nil {
+				return &tcloudservicev1.AddUserGroupMemberResponse{}, nil
+			}
+			resp, err := returner()
+			if resp == nil && err == nil {
+				resp = &tcloudservicev1.AddUserGroupMemberResponse{}
+			}
+			return resp, err
+		}
+		s.addUserGroupMemberFunc = fn
+	}
+}
+
+// OnAddUserGroupMemberReturn sets the response returned by AddUserGroupMember.
+func OnAddUserGroupMemberReturn(
+	resp *tcloudservicev1.AddUserGroupMemberResponse,
+	err error,
+) NewOption {
+	if resp == nil && err == nil {
+		resp = &tcloudservicev1.AddUserGroupMemberResponse{}
+	}
+	return func(s *fakeServer) {
+		fn := func(
+			context.Context, *tcloudservicev1.AddUserGroupMemberRequest,
+		) (*tcloudservicev1.AddUserGroupMemberResponse, error) {
+			return resp, err
+		}
+		s.addUserGroupMemberFunc = fn
+	}
+}
+
+func (s fakeServer) AddUserGroupMember(
+	ctx context.Context,
+	req *tcloudservicev1.AddUserGroupMemberRequest,
+) (*tcloudservicev1.AddUserGroupMemberResponse, error) {
+	if s.addUserGroupMemberFunc != nil {
+		return s.addUserGroupMemberFunc(ctx, req)
+	}
+	return s.UnimplementedCloudServiceServer.AddUserGroupMember(ctx, req)
+}
+
+type RemoveUserGroupMemberFunc func(
+	context.Context,
+	*tcloudservicev1.RemoveUserGroupMemberRequest,
+) (*tcloudservicev1.RemoveUserGroupMemberResponse, error)
+
+// WithRemoveUserGroupMember sets the fake server's RemoveUserGroupMember function override.
+func WithRemoveUserGroupMember(fn RemoveUserGroupMemberFunc) NewOption {
+	return func(s *fakeServer) {
+		s.removeUserGroupMemberFunc = fn
+	}
+}
+
+// OnRemoveUserGroupMember lets tests validate arguments passed to RemoveUserGroupMember and set its
+// response.
+func OnRemoveUserGroupMember(
+	asserter func(*tcloudservicev1.RemoveUserGroupMemberRequest),
+	returner func() (*tcloudservicev1.RemoveUserGroupMemberResponse, error),
+) NewOption {
+	return func(s *fakeServer) {
+		fn := func(
+			ctx context.Context, req *tcloudservicev1.RemoveUserGroupMemberRequest,
+		) (*tcloudservicev1.RemoveUserGroupMemberResponse, error) {
+			if asserter != nil {
+				asserter(req)
+			}
+			if returner == nil {
+				return &tcloudservicev1.RemoveUserGroupMemberResponse{}, nil
+			}
+			resp, err := returner()
+			if resp == nil && err == nil {
+				resp = &tcloudservicev1.RemoveUserGroupMemberResponse{}
+			}
+			return resp, err
+		}
+		s.removeUserGroupMemberFunc = fn
+	}
+}
+
+// OnRemoveUserGroupMemberReturn sets the response returned by RemoveUserGroupMember.
+func OnRemoveUserGroupMemberReturn(
+	resp *tcloudservicev1.RemoveUserGroupMemberResponse,
+	err error,
+) NewOption {
+	if resp == nil && err == nil {
+		resp = &tcloudservicev1.RemoveUserGroupMemberResponse{}
+	}
+	return func(s *fakeServer) {
+		fn := func(
+			context.Context, *tcloudservicev1.RemoveUserGroupMemberRequest,
+		) (*tcloudservicev1.RemoveUserGroupMemberResponse, error) {
+			return resp, err
+		}
+		s.removeUserGroupMemberFunc = fn
+	}
+}
+
+func (s fakeServer) RemoveUserGroupMember(
+	ctx context.Context,
+	req *tcloudservicev1.RemoveUserGroupMemberRequest,
+) (*tcloudservicev1.RemoveUserGroupMemberResponse, error) {
+	if s.removeUserGroupMemberFunc != nil {
+		return s.removeUserGroupMemberFunc(ctx, req)
+	}
+	return s.UnimplementedCloudServiceServer.RemoveUserGroupMember(ctx, req)
+}
+
+type GetUserGroupMembersFunc func(
+	context.Context,
+	*tcloudservicev1.GetUserGroupMembersRequest,
+) (*tcloudservicev1.GetUserGroupMembersResponse, error)
+
+// WithGetUserGroupMembers sets the fake server's GetUserGroupMembers function override.
+func WithGetUserGroupMembers(fn GetUserGroupMembersFunc) NewOption {
+	return func(s *fakeServer) {
+		s.getUserGroupMembersFunc = fn
+	}
+}
+
+// OnGetUserGroupMembers lets tests validate arguments passed to GetUserGroupMembers and set its
+// response.
+func OnGetUserGroupMembers(
+	asserter func(*tcloudservicev1.GetUserGroupMembersRequest),
+	returner func() (*tcloudservicev1.GetUserGroupMembersResponse, error),
+) NewOption {
+	return func(s *fakeServer) {
+		fn := func(
+			ctx context.Context, req *tcloudservicev1.GetUserGroupMembersRequest,
+		) (*tcloudservicev1.GetUserGroupMembersResponse, error) {
+			if asserter != nil {
+				asserter(req)
+			}
+			if returner == nil {
+				return &tcloudservicev1.GetUserGroupMembersResponse{}, nil
+			}
+			resp, err := returner()
+			if resp == nil && err == nil {
+				resp = &tcloudservicev1.GetUserGroupMembersResponse{}
+			}
+			return resp, err
+		}
+		s.getUserGroupMembersFunc = fn
+	}
+}
+
+// OnGetUserGroupMembersReturn sets the response returned by GetUserGroupMembers.
+func OnGetUserGroupMembersReturn(
+	resp *tcloudservicev1.GetUserGroupMembersResponse,
+	err error,
+) NewOption {
+	if resp == nil && err == nil {
+		resp = &tcloudservicev1.GetUserGroupMembersResponse{}
+	}
+	return func(s *fakeServer) {
+		fn := func(
+			context.Context, *tcloudservicev1.GetUserGroupMembersRequest,
+		) (*tcloudservicev1.GetUserGroupMembersResponse, error) {
+			return resp, err
+		}
+		s.getUserGroupMembersFunc = fn
+	}
+}
+
+func (s fakeServer) GetUserGroupMembers(
+	ctx context.Context,
+	req *tcloudservicev1.GetUserGroupMembersRequest,
+) (*tcloudservicev1.GetUserGroupMembersResponse, error) {
+	if s.getUserGroupMembersFunc != nil {
+		return s.getUserGroupMembersFunc(ctx, req)
+	}
+	return s.UnimplementedCloudServiceServer.GetUserGroupMembers(ctx, req)
+}
