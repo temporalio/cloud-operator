@@ -97,7 +97,9 @@ func getMembers(
 	groupID string,
 ) ([]cloudcommon.ResourceReferenceOrID, error) {
 	var out []cloudcommon.ResourceReferenceOrID
-	req := &tcloudservicev1.GetUserGroupMembersRequest{GroupId: groupID, PageSize: 1000}
+	// Temporal Cloud's default page size is used, because its maximum (500)
+	// is lower than the API documents and may change.
+	req := &tcloudservicev1.GetUserGroupMembersRequest{GroupId: groupID}
 	for {
 		resp, err := tcc.GetUserGroupMembers(ctx, req)
 		if err != nil {

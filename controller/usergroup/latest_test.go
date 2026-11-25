@@ -119,6 +119,10 @@ func TestReconciler_ResourceLatest(t *testing.T) {
 			getMembers := fakeserver.WithGetUserGroupMembers(func(
 				_ context.Context, req *tcloudservicev1.GetUserGroupMembersRequest,
 			) (*tcloudservicev1.GetUserGroupMembersResponse, error) {
+				// Temporal Cloud rejects a page size over 500.
+				if req.GetPageSize() > 500 {
+					return nil, status.Error(codes.InvalidArgument, "page size is too large")
+				}
 				return memberPage(tc.memberPages, req.GetPageToken()), nil
 			})
 			r := newReconciler(tt, tc.kubeObjs, getUserGroup, getMembers)
