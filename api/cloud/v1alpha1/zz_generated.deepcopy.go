@@ -1299,6 +1299,11 @@ func (in *UserGroupReferences) DeepCopyInto(out *UserGroupReferences) {
 		*out = make([]common.ResolvedReference, len(*in))
 		copy(*out, *in)
 	}
+	if in.Projects != nil {
+		in, out := &in.Projects, &out.Projects
+		*out = make([]common.ResolvedReference, len(*in))
+		copy(*out, *in)
+	}
 	return
 }
 

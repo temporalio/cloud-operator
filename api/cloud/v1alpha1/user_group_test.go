@@ -144,3 +144,137 @@ func TestUserGroup_FromProto(t *testing.T) {
 		})
 	}
 }
+
+func TestUserGroupSpec_ToProto(t *testing.T) {
+	cloudGroup := &tcloudidentityv1.UserGroupSpec_CloudGroup{CloudGroup: &tcloudidentityv1.CloudGroupSpec{}}
+
+	cases := []struct {
+		name string
+		spec tcloudv1alpha1.UserGroupSpec
+		refs tcloudv1alpha1.UserGroupReferences
+		exp  *tcloudidentityv1.UserGroupSpec
+	}{
+		{
+			name: "namespace ref yields its resolved id",
+			spec: tcloudv1alpha1.UserGroupSpec{
+				DisplayName: "oncall",
+				CloudGroup:  &tcloudv1alpha1.CloudGroupSpec{},
+				Access: tcloudv1alpha1.AccountScopedAccess{
+					AccountAccess: &tcloudv1alpha1.AccountAccess{Role: tcloudv1alpha1.AccountRoleRead},
+					NamespaceAccesses: []tcloudv1alpha1.NamespaceScopedAccess{
+						nsAccess(ref("payments"), tcloudv1alpha1.NamespacePermissionWrite),
+					},
+				},
+			},
+			refs: tcloudv1alpha1.UserGroupReferences{
+				Namespaces: []cloudcommon.ResolvedReference{
+					{Namespace: "apps", Name: "payments", ID: "payments.acct"},
+				},
+			},
+			exp: &tcloudidentityv1.UserGroupSpec{
+				DisplayName: "oncall",
+				GroupType:   cloudGroup,
+				Access: &tcloudidentityv1.Access{
+					AccountAccess: &tcloudidentityv1.AccountAccess{Role: tcloudidentityv1.AccountAccess_ROLE_READ},
+					NamespaceAccesses: map[string]*tcloudidentityv1.NamespaceAccess{
+						"payments.acct": {Permission: tcloudidentityv1.NamespaceAccess_PERMISSION_WRITE},
+					},
+				},
+			},
+		},
+		{
+			name: "project ref and id yield their ids",
+			spec: tcloudv1alpha1.UserGroupSpec{
+				DisplayName: "oncall",
+				CloudGroup:  &tcloudv1alpha1.CloudGroupSpec{},
+				Access: tcloudv1alpha1.AccountScopedAccess{
+					AccountAccess: &tcloudv1alpha1.AccountAccess{Role: tcloudv1alpha1.AccountRoleRead},
+					ProjectAccesses: []tcloudv1alpha1.ProjectAccessEntry{
+						projectAccess(id("p-legacy"), tcloudv1alpha1.ProjectRoleRead),
+						projectAccess(ref("orders"), tcloudv1alpha1.ProjectRoleAdmin),
+					},
+				},
+			},
+			refs: tcloudv1alpha1.UserGroupReferences{
+				Projects: []cloudcommon.ResolvedReference{
+					{Namespace: "apps", Name: "orders", ID: "p-orders"},
+				},
+			},
+			exp: &tcloudidentityv1.UserGroupSpec{
+				DisplayName: "oncall",
+				GroupType:   cloudGroup,
+				Access: &tcloudidentityv1.Access{
+					AccountAccess: &tcloudidentityv1.AccountAccess{Role: tcloudidentityv1.AccountAccess_ROLE_READ},
+					ProjectAccesses: map[string]*tcloudidentityv1.ProjectAccess{
+						"p-legacy": {Role: tcloudidentityv1.ProjectAccess_PROJECT_ROLE_READ},
+						"p-orders": {Role: tcloudidentityv1.ProjectAccess_PROJECT_ROLE_ADMIN},
+					},
+				},
+			},
+		},
+		{
+			name: "google group yields its email address",
+			spec: tcloudv1alpha1.UserGroupSpec{
+				DisplayName: "Payments On Call",
+				GoogleGroup: &tcloudv1alpha1.GoogleGroupSpec{EmailAddress: "oncall@example.com"},
+			},
+			exp: &tcloudidentityv1.UserGroupSpec{
+				DisplayName: "Payments On Call",
+				GroupType: &tcloudidentityv1.UserGroupSpec_GoogleGroup{
+					GoogleGroup: &tcloudidentityv1.GoogleGroupSpec{EmailAddress: "oncall@example.com"},
+				},
+				Access: &tcloudidentityv1.Access{},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(tt *testing.T) {
+			requireProtoEqual(tt, tc.exp, tc.spec.ToProto("apps", tc.refs))
+		})
+	}
+}
+
+func TestUserGroupSpec_RoundTrip(t *testing.T) {
+	access := &tcloudidentityv1.Access{
+		AccountAccess: &tcloudidentityv1.AccountAccess{Role: tcloudidentityv1.AccountAccess_ROLE_DEVELOPER},
+		NamespaceAccesses: map[string]*tcloudidentityv1.NamespaceAccess{
+			"payments.acct": {Permission: tcloudidentityv1.NamespaceAccess_PERMISSION_WRITE},
+		},
+		ProjectAccesses: map[string]*tcloudidentityv1.ProjectAccess{
+			"p-orders": {Role: tcloudidentityv1.ProjectAccess_PROJECT_ROLE_ADMIN},
+		},
+	}
+
+	cases := []struct {
+		name string
+		in   *tcloudidentityv1.UserGroupSpec
+	}{
+		{
+			name: "cloud group yields the same spec",
+			in: &tcloudidentityv1.UserGroupSpec{
+				DisplayName: "oncall",
+				GroupType:   &tcloudidentityv1.UserGroupSpec_CloudGroup{CloudGroup: &tcloudidentityv1.CloudGroupSpec{}},
+				Access:      access,
+			},
+		},
+		{
+			name: "google group yields the same spec",
+			in: &tcloudidentityv1.UserGroupSpec{
+				DisplayName: "Payments On Call",
+				GroupType: &tcloudidentityv1.UserGroupSpec_GoogleGroup{
+					GoogleGroup: &tcloudidentityv1.GoogleGroupSpec{EmailAddress: "oncall@example.com"},
+				},
+				Access: access,
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(tt *testing.T) {
+			var spec tcloudv1alpha1.UserGroupSpec
+
+			got := spec.FromProto(tc.in).ToProto("apps", tcloudv1alpha1.UserGroupReferences{})
+
+			requireProtoEqual(tt, tc.in, got)
+		})
+	}
+}

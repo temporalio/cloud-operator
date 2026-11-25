@@ -19,6 +19,7 @@ rules:
   - namespaces
   - projects
   - serviceaccounts
+  - usergroups
   - users
   verbs:
   - create
@@ -35,6 +36,7 @@ rules:
   - namespaces/finalizers
   - projects/finalizers
   - serviceaccounts/finalizers
+  - usergroups/finalizers
   - users/finalizers
   verbs:
   - update
@@ -45,6 +47,7 @@ rules:
   - namespaces/status
   - projects/status
   - serviceaccounts/status
+  - usergroups/status
   - users/status
   verbs:
   - get
