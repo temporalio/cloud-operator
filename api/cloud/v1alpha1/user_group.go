@@ -80,9 +80,18 @@ type GoogleGroupSpec struct {
 }
 
 // CloudGroupSpec describes a User Group whose members are managed in
-// Temporal Cloud. It has no fields.
+// Temporal Cloud.
 // Maps to Temporal Cloud proto `CloudGroupSpec`.
-type CloudGroupSpec struct{}
+type CloudGroupSpec struct {
+	// Members are the Users in the User Group. The operator adds and removes
+	// members in Temporal Cloud so the group has exactly these Users.
+	// Maps to Temporal Cloud `AddUserGroupMember` and `RemoveUserGroupMember`.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=1000
+	// +kubebuilder:validation:XValidation:rule="self.all(a, self.exists_one(b, b == a))",message="each member can only appear once"
+	Members []cloudcommon.ResourceReferenceOrID `json:"members,omitempty"`
+}
 
 // UserGroupStatus describes the current status of a Temporal Cloud User Group.
 // +k8s:openapi-gen=true
@@ -114,6 +123,22 @@ type UserGroupReferences struct {
 	// +listMapKey=namespace
 	// +listMapKey=name
 	Projects []cloudcommon.ResolvedReference `json:"projects,omitempty"`
+	// Users are the User CRs referenced by the spec that have a Temporal
+	// Cloud ID.
+	// +optional
+	// +listType=map
+	// +listMapKey=namespace
+	// +listMapKey=name
+	Users []cloudcommon.ResolvedReference `json:"users,omitempty"`
+}
+
+// UserID returns the Temporal Cloud ID of the User CR that the supplied
+// reference points to, and whether it has been resolved.
+func (r UserGroupReferences) UserID(
+	ref cloudcommon.ResourceReference,
+	referrerNamespace string,
+) (string, bool) {
+	return cloudcommon.ResolvedID(r.Users, ref, referrerNamespace)
 }
 
 // NamespaceID returns the Temporal Cloud ID of the Namespace CR that the
@@ -185,6 +210,28 @@ func (s UserGroupSpec) FromProto(in *tcloudidentityv1.UserGroupSpec) UserGroupSp
 		}
 	case in.GetCloudGroup() != nil:
 		out.CloudGroup = &CloudGroupSpec{}
+	}
+	return out
+}
+
+// MemberIDs returns the Temporal Cloud user ID of each member, with each User
+// ref replaced by its ID from `refs`. A ref without an ID yet is left out.
+func (s UserGroupSpec) MemberIDs(
+	referrerNamespace string,
+	refs UserGroupReferences,
+) []string {
+	if s.CloudGroup == nil {
+		return nil
+	}
+	var out []string
+	for _, m := range s.CloudGroup.Members {
+		id := m.ID
+		if m.Ref != nil {
+			id, _ = refs.UserID(*m.Ref, referrerNamespace)
+		}
+		if id != "" {
+			out = append(out, id)
+		}
 	}
 	return out
 }

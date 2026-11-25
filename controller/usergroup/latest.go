@@ -79,11 +79,42 @@ func (r *Reconciler) ResourceLatest(
 
 	cr.Status.References = refs
 	*cr = *cr.FromProto(tcloudGroup)
+	// GetUserGroupMembers fails for a Google group, and Temporal Cloud keeps
+	// the member list only for a cloud group.
+	if cr.Spec.CloudGroup != nil {
+		cr.Spec.CloudGroup.Members, err = getMembers(ctx, tcc, cr.Status.Resource.ID)
+		if err != nil {
+			return latest, fmt.Errorf("failed getting tcloud user group members: %w", err)
+		}
+	}
 	return latest, nil
 }
 
-// resolveReferences returns the Temporal Cloud IDs of the Namespace and
-// Project custom resources that the CR's spec refers to.
+// getMembers returns the ID of each User in the Temporal Cloud user group.
+func getMembers(
+	ctx context.Context,
+	tcc tcloudservicev1.CloudServiceClient,
+	groupID string,
+) ([]cloudcommon.ResourceReferenceOrID, error) {
+	var out []cloudcommon.ResourceReferenceOrID
+	req := &tcloudservicev1.GetUserGroupMembersRequest{GroupId: groupID, PageSize: 1000}
+	for {
+		resp, err := tcc.GetUserGroupMembers(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range resp.GetMembers() {
+			out = append(out, cloudcommon.ResourceReferenceOrID{ID: m.GetMemberId().GetUserId()})
+		}
+		if resp.GetNextPageToken() == "" {
+			return out, nil
+		}
+		req.PageToken = resp.GetNextPageToken()
+	}
+}
+
+// resolveReferences returns the Temporal Cloud IDs of the Namespace, Project
+// and User custom resources that the CR's spec refers to.
 func (r *Reconciler) resolveReferences(
 	ctx context.Context,
 	cr *tcloudv1alpha1.UserGroup,
@@ -100,6 +131,13 @@ func (r *Reconciler) resolveReferences(
 	out.Projects, err = resolve(
 		ctx, r.KubeReader(), cr.Namespace, projectRefs(cr.Spec),
 		reference.ResolveProjectID,
+	)
+	if err != nil {
+		return out, err
+	}
+	out.Users, err = resolve(
+		ctx, r.KubeReader(), cr.Namespace, userRefs(cr.Spec),
+		reference.ResolveUserID,
 	)
 	return out, err
 }
@@ -175,6 +213,24 @@ func projectRefs(spec tcloudv1alpha1.UserGroupSpec) []specRef {
 			out = append(out, specRef{
 				path:    fmt.Sprintf("spec.access.projectAccesses[%d].project", i),
 				refOrID: e.Project,
+			})
+		}
+	}
+	return out
+}
+
+// userRefs returns every User ref in the supplied spec, together with where
+// it sits in the spec, for example spec.cloudGroup.members[1].
+func userRefs(spec tcloudv1alpha1.UserGroupSpec) []specRef {
+	if spec.CloudGroup == nil {
+		return nil
+	}
+	var out []specRef
+	for i, m := range spec.CloudGroup.Members {
+		if m.Ref != nil {
+			out = append(out, specRef{
+				path:    fmt.Sprintf("spec.cloudGroup.members[%d]", i),
+				refOrID: m,
 			})
 		}
 	}

@@ -20,7 +20,7 @@ const (
 	ControllerName = "serviceaccount"
 
 	// resourceKind names the Temporal Cloud resource in messages.
-	resourceKind = "service account"
+	resourceKind = "serviceaccount"
 )
 
 // New returns a new [controller.Controller] that handles

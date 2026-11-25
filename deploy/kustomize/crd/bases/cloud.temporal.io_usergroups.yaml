@@ -257,6 +257,46 @@ spec:
                   CloudGroup makes this a User Group whose members are managed in
                   Temporal Cloud.
                   Maps to Temporal Cloud proto `UserGroupSpec.cloud_group`.
+                properties:
+                  members:
+                    description: |-
+                      Members are the Users in the User Group. The operator adds and removes
+                      members in Temporal Cloud so the group has exactly these Users.
+                      Maps to Temporal Cloud `AddUserGroupMember` and `RemoveUserGroupMember`.
+                    items:
+                      description: |-
+                        ResourceReferenceOrID contains *either* a Temporal Cloud resource identifier string
+                        *or* a ResourceReference that points to a cloud.temporal.io custom resource.
+                      properties:
+                        id:
+                          description: ID is the Temporal Cloud resource identifier.
+                          type: string
+                        ref:
+                          description: Ref is an optional field that points at a cloud.temporal.io
+                            custom resource
+                          properties:
+                            name:
+                              description: Name is the name of the custom resource.
+                              type: string
+                            namespace:
+                              description: |-
+                                Namespace contains the optional Kubernetes Namespace in which to find
+                                the custom resource. If empty, the Kubernetes Namespace containing the
+                                referring object is used.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                      type: object
+                      x-kubernetes-validations:
+                      - message: exactly one of ref or id must be set
+                        rule: has(self.ref) != has(self.id)
+                    maxItems: 1000
+                    type: array
+                    x-kubernetes-list-type: atomic
+                    x-kubernetes-validations:
+                    - message: each member can only appear once
+                      rule: self.all(a, self.exists_one(b, b == a))
                 type: object
               displayName:
                 description: |-
@@ -417,6 +457,36 @@ spec:
                     description: |-
                       Projects are the Project CRs referenced by the spec that have a
                       Temporal Cloud ID.
+                    items:
+                      description: |-
+                        ResolvedReference contains the Kubernetes Namespace and Name of a
+                        cloud.temporal.io custom resource along with its resolved Temporal Cloud
+                        resource identifier.
+                      properties:
+                        id:
+                          description: ID is the Temporal Cloud resource identifier.
+                          type: string
+                        name:
+                          description: Name is the Kubernetes Name of the custom resource.
+                          type: string
+                        namespace:
+                          description: Namespace is the Kubernetes Namespace containing
+                            the custom resource.
+                          type: string
+                      required:
+                      - id
+                      - name
+                      - namespace
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - namespace
+                    - name
+                    x-kubernetes-list-type: map
+                  users:
+                    description: |-
+                      Users are the User CRs referenced by the spec that have a Temporal
+                      Cloud ID.
                     items:
                       description: |-
                         ResolvedReference contains the Kubernetes Namespace and Name of a

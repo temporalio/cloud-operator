@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	ctrlerrors "github.com/temporalio/kube-temporal/pkg/controller/errors"
 	ctrlreqlog "github.com/temporalio/kube-temporal/pkg/controller/request/log"
@@ -160,22 +161,95 @@ func updateUserGroup(
 		)
 	}
 
-	if proto.Equal(want, got) {
-		return nil
+	if !proto.Equal(want, got) {
+		_, err = tcc.UpdateUserGroup(ctx, &tcloudservicev1.UpdateUserGroupRequest{
+			GroupId:         resourceID,
+			Spec:            want,
+			ResourceVersion: latest.Status.Resource.Version,
+		})
+		if err != nil {
+			return cloud.CallError("updating tcloud user group", err)
+		}
+		return requeue.NeededAfter(
+			fmt.Errorf("updated tcloud user group %q, waiting for update to complete", resourceID),
+			requeue.DefaultRequeueAfterDuration,
+		)
 	}
+	return syncMembers(ctx, tcc, desired, latest)
+}
 
-	_, err = tcc.UpdateUserGroup(ctx, &tcloudservicev1.UpdateUserGroupRequest{
-		GroupId:         resourceID,
-		Spec:            want,
-		ResourceVersion: latest.Status.Resource.Version,
+// syncMembers adds or removes at most one member, so the group's members move
+// toward the Users in the spec. Temporal Cloud marks the group Updating for
+// each change and rejects another change until it is Active again.
+func syncMembers(
+	ctx context.Context,
+	tcc tcloudservicev1.CloudServiceClient,
+	desired *tcloudv1alpha1.UserGroup,
+	latest *tcloudv1alpha1.UserGroup,
+) error {
+	groupID := latest.Status.Resource.ID
+	want := desired.Spec.MemberIDs(desired.Namespace, latest.Status.References)
+	// latest's members come from Temporal Cloud, so each one is already an ID.
+	var none tcloudv1alpha1.UserGroupReferences
+	got := latest.Spec.MemberIDs(latest.Namespace, none)
+
+	for _, userID := range want {
+		if !slices.Contains(got, userID) {
+			return addMember(ctx, tcc, groupID, userID)
+		}
+	}
+	for _, userID := range got {
+		if !slices.Contains(want, userID) {
+			return removeMember(ctx, tcc, groupID, userID)
+		}
+	}
+	return nil
+}
+
+// addMember adds the user to the Temporal Cloud user group.
+func addMember(
+	ctx context.Context,
+	tcc tcloudservicev1.CloudServiceClient,
+	groupID string,
+	userID string,
+) error {
+	_, err := tcc.AddUserGroupMember(ctx, &tcloudservicev1.AddUserGroupMemberRequest{
+		GroupId:  groupID,
+		MemberId: userMemberID(userID),
 	})
 	if err != nil {
-		return cloud.CallError("updating tcloud user group", err)
+		return cloud.CallError(fmt.Sprintf("adding user %q to tcloud user group", userID), err)
 	}
 	return requeue.NeededAfter(
-		fmt.Errorf("updated tcloud user group %q, waiting for update to complete", resourceID),
+		fmt.Errorf("added user %q to tcloud user group %q, waiting for update to complete", userID, groupID),
 		requeue.DefaultRequeueAfterDuration,
 	)
+}
+
+// removeMember removes the user from the Temporal Cloud user group.
+func removeMember(
+	ctx context.Context,
+	tcc tcloudservicev1.CloudServiceClient,
+	groupID string,
+	userID string,
+) error {
+	_, err := tcc.RemoveUserGroupMember(ctx, &tcloudservicev1.RemoveUserGroupMemberRequest{
+		GroupId:  groupID,
+		MemberId: userMemberID(userID),
+	})
+	if err != nil {
+		return cloud.CallError(fmt.Sprintf("removing user %q from tcloud user group", userID), err)
+	}
+	return requeue.NeededAfter(
+		fmt.Errorf("removed user %q from tcloud user group %q, waiting for update to complete", userID, groupID),
+		requeue.DefaultRequeueAfterDuration,
+	)
+}
+
+func userMemberID(userID string) *tcloudidentityv1.UserGroupMemberId {
+	return &tcloudidentityv1.UserGroupMemberId{
+		MemberType: &tcloudidentityv1.UserGroupMemberId_UserId{UserId: userID},
+	}
 }
 
 // groupTypeMismatch reports whether the group type or Google group email
@@ -221,6 +295,10 @@ func checkReferences(
 	for _, pr := range projectRefs(cr.Spec) {
 		id, _ := refs.ProjectID(*pr.refOrID.Ref, cr.Namespace)
 		check.Pending(pr.path, pr.refOrID, id)
+	}
+	for _, ur := range userRefs(cr.Spec) {
+		id, _ := refs.UserID(*ur.refOrID.Ref, cr.Namespace)
+		check.Pending(ur.path, ur.refOrID, id)
 	}
 
 	if a := cr.Spec.Access.AccountAccess; a != nil {
