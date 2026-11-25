@@ -21,7 +21,7 @@ const (
 	ControllerName = "usergroup"
 
 	// resourceKind names the Temporal Cloud resource in messages.
-	resourceKind = "usergroup"
+	resourceKind = "user group"
 )
 
 // New returns a new [controller.Controller] that handles

@@ -20,7 +20,7 @@ import (
 const (
 	ControllerName = "apikey"
 
-	resourceKind = "apikey"
+	resourceKind = "api key"
 )
 
 // New returns a new [controller.Controller] that handles
